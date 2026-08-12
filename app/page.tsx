@@ -1,12 +1,24 @@
 'use client';
 
 import React from 'react';
+import dynamic from 'next/dynamic';
 import { HeaderBar } from '@/components/HeaderBar';
-import { MapBoxView } from '@/components/MapBoxView';
 import { TelemetryHUD } from '@/components/TelemetryHUD';
 import { AIBriefing } from '@/components/AIBriefing';
 import { AlertDrawer } from '@/components/AlertDrawer';
 import { useSocketTelemetry } from '@/lib/socket';
+
+const LeafletMapView = dynamic(
+  () => import('@/components/LeafletMapView'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full bg-[#090D16] flex items-center justify-center font-mono text-xs text-[#06B6D4]">
+        INITIALIZING TACTICAL CARTO MAP MESH...
+      </div>
+    ),
+  }
+);
 
 export default function AquaRescueDashboard() {
   const {
@@ -35,7 +47,7 @@ export default function AquaRescueDashboard() {
       <main className="flex-1 min-h-0 flex flex-col lg:flex-row w-full overflow-hidden">
         {/* 65% Interactive Spatial Map View */}
         <div className="w-full lg:w-[65%] h-[50vh] lg:h-full relative">
-          <MapBoxView
+          <LeafletMapView
             filteredTarget={state.filteredLocation}
             rawTarget={state.rawLocation}
             droneLocation={state.droneLocation}
