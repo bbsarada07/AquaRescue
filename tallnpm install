@@ -1,0 +1,38 @@
+[33mcommit 04e1f2022f62216ea8ff106f5d29bf8f49583441[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Sanjanabikmalla <Sanjana>
+Date:   Sat Aug 15 13:16:12 2026 +0530
+
+    feat: Add Predictive Drift Zone, ETA Engine, Signal Health Monitor & Active Rescue Mission Mode
+    
+    - Feature 1: Predictive Drift Impact Zone
+      * lib/hydrodynamics.ts: Added offsetCoordinate() and calculatePredictiveDriftZone() for hydrodynamic uncertainty corridor calculation. Added RESPONDER_SPEEDS config.
+      * app/globals.css: Added pulse-drift-opacity and flow-drift-dash keyframe animations.
+      * components/LeafletMapView.tsx: Rendered pulsing cyan corridor polygon and flowing centerline polyline on Leaflet map.
+      * components/TelemetryHUD.tsx: Integrated Predictive Drift Impact Zone details card and 15s/30s/45s/60s prediction window selector.
+    
+    - Feature 2: Nearest Responder ETA Engine
+      * lib/socket.ts: Extended AquaRescueState with responderLocation, responderPath, droneStatus, buoyStatus, responderStatus. Added simulation tick movement and status transitions.
+      * components/TelemetryHUD.tsx: Added RESCUE RESPONSE ETA panel displaying live Haversine distances, drift-compensated buoy ETAs, fastest responder highlighting, and dispatch button handlers.
+      * components/LeafletMapView.tsx: Added purple RESCUE-TEAM-01 triangle marker, responder path polyline, and dashed connection line to active target.
+    
+    - Feature 3: Live Signal Health Monitor
+      * lib/socket.ts: Extended state with lastPacketTimestamp.
+      * components/SignalHealthMonitor.tsx: Created SignalHealthMonitor panel displaying Hardware/Puck signal status, WebSocket connection state, telemetry packets/sec, and Data Quality LED indicators.
+    
+    - Feature 4: Full-Screen Active Rescue Mission Mode
+      * lib/socket.ts: Added missionStartTime and missionId to state tracking.
+      * components/ActiveMissionOverlay.tsx: Created emergency overlay with mission header, 70% primary map view, 3 response unit command cards (UAV Drone, Buoy, Rescue Team), and an 8-stage horizontal mission timeline.
+      * components/MissionCompleteModal.tsx: Created post-incident resolution summary modal.
+      * app/page.tsx: Dynamically imported and integrated ActiveMissionOverlay and MissionCompleteModal.
+
+ app/globals.css                     |   61 [32m++[m
+ app/page.tsx                        |  144 [32m++[m[31m-[m
+ components/ActiveMissionOverlay.tsx |  541 [32m+++++++++++[m
+ components/LeafletMapView.tsx       |  162 [32m+++[m[31m-[m
+ components/MissionCompleteModal.tsx |  168 [32m++++[m
+ components/SignalHealthMonitor.tsx  |  307 [32m++++++[m
+ components/TelemetryHUD.tsx         |  305 [32m+++++[m[31m-[m
+ lib/hydrodynamics.ts                |  106 [32m++[m[31m-[m
+ lib/socket.ts                       |  110 [32m++[m[31m-[m
+ package-lock.json                   | 1801 [32m++++++++++++++++++++++++++++++++++[m[31m-[m
+ 10 files changed, 3665 insertions(+), 40 deletions(-)
