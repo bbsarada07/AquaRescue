@@ -14,10 +14,13 @@ import {
   RotateCcw,
   Zap,
   Crosshair,
-  Timer
+  Timer,
+  Keyboard
 } from 'lucide-react';
 import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
 import { HydrodynamicVectorResult, RESPONDER_SPEEDS } from '@/lib/hydrodynamics';
+import { AudioWaveform } from './AudioWaveform';
+import { DroneCameraHUD } from './DroneCameraHUD';
 
 export interface TelemetryHUDProps {
   puckId: string | null;
@@ -163,7 +166,12 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         </div>
       </div>
 
-      {/* Grid 2: Sensor Telemetry Cards */}
+      {/* Grid 2: Acoustic Waveform Visualizer & Sensor Telemetry Cards */}
+      <AudioWaveform 
+        screechConfidence={sensorData?.screechConfidence ?? 0.96} 
+        activeDistress={activeDistress}
+      />
+
       <div className="grid grid-cols-2 gap-3">
         {/* TinyML Screech Audio Confidence */}
         <div className="bg-[#090D16] p-3 rounded-lg border border-[#1F293D] space-y-1.5">
@@ -506,6 +514,14 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         )}
       </div>
 
+      {/* Simulated Drone Camera Vision HUD */}
+      <DroneCameraHUD
+        puckId={puckId}
+        activeDistress={activeDistress}
+        droneStatus={droneStatus}
+        onManualPayloadDrop={onManualPayloadDrop}
+      />
+
       {/* Payload & Gimbal Lock Indicators */}
       <div className="flex items-center justify-between bg-[#090D16] p-2.5 rounded-lg border border-[#1F293D] text-xs">
         <div className="flex items-center space-x-2">
@@ -560,6 +576,20 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           <RotateCcw className="w-3 h-3 text-gray-400" />
           <span>RESOLVE INCIDENT & CLEAR ALERT</span>
         </button>
+
+        {/* Keyboard Hotkey Command Cheat-Strip */}
+        <div className="bg-[#090D16] p-2 rounded-lg border border-[#06B6D4]/30 text-[10px] font-mono text-gray-400 flex items-center justify-between mt-2">
+          <span className="flex items-center gap-1 text-[#06B6D4] font-bold">
+            <Keyboard className="w-3.5 h-3.5" />
+            HOTKEYS:
+          </span>
+          <div className="flex space-x-2 text-[9px]">
+            <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[SPACE]</kbd> Dispatch</span>
+            <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[D]</kbd> Vest</span>
+            <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[R]</kbd> Resolve</span>
+            <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[M]</kbd> Mute</span>
+          </div>
+        </div>
       </div>
     </div>
   );

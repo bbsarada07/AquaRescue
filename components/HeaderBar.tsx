@@ -23,6 +23,7 @@ interface HeaderBarProps {
   onToggleAudio: () => void;
   onTriggerDemo: (scenario: 'SCREECH' | 'DRIFT' | 'INTERCEPT') => void;
   onResolve: () => void;
+  onShareTrack?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -32,6 +33,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onToggleAudio,
   onTriggerDemo,
   onResolve,
+  onShareTrack,
 }) => {
   const [timeUtc, setTimeUtc] = useState<string>('');
   const [timeIst, setTimeIst] = useState<string>('');
@@ -126,6 +128,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
       {/* Right Control Trigger Matrix */}
       <div className="flex items-center space-x-2">
+        {/* Share Live Track Dispatch Button */}
+        {onShareTrack && (
+          <button
+            onClick={onShareTrack}
+            title="Open Responder Live GPS QR Dispatch"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-[#06B6D4]/15 border border-[#06B6D4]/50 text-[#06B6D4] hover:bg-[#06B6D4]/30 text-xs font-mono font-bold transition-all shadow-lg"
+          >
+            <Activity className="w-3.5 h-3.5 text-[#06B6D4]" />
+            <span>SHARE LIVE TRACK</span>
+          </button>
+        )}
+
         {/* Audio Voice Dispatch Toggle */}
         <button
           onClick={onToggleAudio}

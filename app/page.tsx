@@ -8,7 +8,9 @@ import { AIBriefing } from '@/components/AIBriefing';
 import { AlertDrawer } from '@/components/AlertDrawer';
 import { SignalHealthMonitor } from '@/components/SignalHealthMonitor';
 import { MissionCompleteModal } from '@/components/MissionCompleteModal';
+import { FieldResponderDispatch } from '@/components/FieldResponderDispatch';
 import { useSocketTelemetry } from '@/lib/socket';
+import { useHotkeys } from '@/lib/useHotkeys';
 
 const LeafletMapView = dynamic(
   () => import('@/components/LeafletMapView'),
@@ -38,6 +40,7 @@ const ActiveMissionOverlay = dynamic(
 export default function AquaRescueDashboard() {
   const [predictionWindow, setPredictionWindow] = useState<15 | 30 | 45 | 60>(30);
   const [showMissionComplete, setShowMissionComplete] = useState(false);
+  const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [lastMissionSummary, setLastMissionSummary] = useState<{
     puckId: string;
     missionId: string | null;
@@ -87,8 +90,27 @@ export default function AquaRescueDashboard() {
     resolveIncident();
   }, [state, resolveIncident]);
 
+  // Global Tactical Keyboard Hotkey Command Engine ([SPACE], [D], [R], [M])
+  useHotkeys({
+    onExecuteRescue: sendExecuteRescue,
+    onManualPayloadDrop: sendManualPayloadDrop,
+    onResolveIncident: handleResolveIncident,
+    onToggleAudio: toggleAudioVoice,
+  });
+
   return (
     <div className="flex flex-col w-full h-screen bg-[#090D16] overflow-hidden relative">
+      {/* ── RESPONDER MOBILE GPS LINK & QR DISPATCH MODAL ────────────────── */}
+      <FieldResponderDispatch
+        isOpen={isDispatchModalOpen}
+        onClose={() => setIsDispatchModalOpen(false)}
+        puckId={state.puckId}
+        targetLocation={state.filteredLocation}
+        waterSpeed={state.sensorData.waterVelocity}
+        driftHeading={state.sensorData.driftHeading}
+        buoyEtaSec={state.hydrodynamics?.distanceMatrix?.buoyEtaSec}
+      />
+
       {/* ── FULL-SCREEN ACTIVE RESCUE MISSION OVERLAY (WHEN DISTRESS ACTIVE) ── */}
       {state.activeDistress && (
         <ActiveMissionOverlay
@@ -147,6 +169,7 @@ export default function AquaRescueDashboard() {
         onToggleAudio={toggleAudioVoice}
         onTriggerDemo={triggerDemoScenario}
         onResolve={handleResolveIncident}
+        onShareTrack={() => setIsDispatchModalOpen(true)}
       />
 
       {/* Main Command Grid Layout: 65% Interactive 3D Map | 35% Telemetry HUD & AI Panel */}
