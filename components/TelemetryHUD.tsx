@@ -16,8 +16,8 @@ import {
   Crosshair,
   Timer
 } from 'lucide-react';
-import { FilteredResult, GPSCoordinate } from '@/lib/kalman';
-import { HydrodynamicVectorResult } from '@/lib/hydrodynamics';
+import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
+import { HydrodynamicVectorResult, RESPONDER_SPEEDS } from '@/lib/hydrodynamics';
 
 export interface TelemetryHUDProps {
   puckId: string | null;
@@ -37,6 +37,15 @@ export interface TelemetryHUDProps {
   onOverrideDispatch: () => void;
   onManualPayloadDrop: () => void;
   onResolveIncident: () => void;
+  predictionWindow?: number;
+  setPredictionWindow?: (sec: 15 | 30 | 45 | 60) => void;
+  isConnected?: boolean;
+  droneLocation?: GPSCoordinate | null;
+  buoyLocation?: GPSCoordinate | null;
+  responderLocation?: GPSCoordinate | null;
+  droneStatus?: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  buoyStatus?: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  responderStatus?: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
 }
 
 export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
@@ -50,8 +59,53 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   onOverrideDispatch,
   onManualPayloadDrop,
   onResolveIncident,
+  predictionWindow = 30,
+  setPredictionWindow,
+  isConnected = true,
+  droneLocation = null,
+  buoyLocation = null,
+  responderLocation = null,
+  droneStatus = 'STANDBY',
+  buoyStatus = 'STANDBY',
+  responderStatus = 'STANDBY',
 }) => {
   const screechPct = Math.round((sensorData?.screechConfidence ?? 0.95) * 100);
+
+  // ── Live ETA Computations ─────────────────────────────────────────────────
+  const target = filteredLocation;
+  const hasTarget = activeDistress && target != null;
+
+  const droneDist = hasTarget && droneLocation
+    ? KalmanFilter2D.haversineDistanceMeters(droneLocation.lat, droneLocation.lng, target.lat, target.lng)
+    : null;
+  const buoyDist = hasTarget && buoyLocation
+    ? KalmanFilter2D.haversineDistanceMeters(buoyLocation.lat, buoyLocation.lng, target.lat, target.lng)
+    : null;
+  const responderDist = hasTarget && responderLocation
+    ? KalmanFilter2D.haversineDistanceMeters(responderLocation.lat, responderLocation.lng, target.lat, target.lng)
+    : null;
+
+  // Buoy uses drift-compensated ETA from hydrodynamics if available, else straight-line
+  const droneEtaSec  = droneDist != null     ? Math.round(droneDist / RESPONDER_SPEEDS.DRONE)      : null;
+  const buoyEtaSec   = hydrodynamics?.distanceMatrix?.buoyEtaSec != null
+    ? hydrodynamics.distanceMatrix.buoyEtaSec
+    : buoyDist != null ? Math.round(buoyDist / RESPONDER_SPEEDS.BUOY) : null;
+  const responderEtaSec = responderDist != null ? Math.round(responderDist / RESPONDER_SPEEDS.HUMAN_TEAM) : null;
+
+  const formatEta = (sec: number | null): string => {
+    if (sec === null) return '—';
+    if (sec < 60) return `${sec}s`;
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  };
+
+  // Determine fastest available responder (by live ETA)
+  const etaEntries: { label: string; eta: number; status: string }[] = [];
+  if (droneEtaSec != null && droneStatus !== 'OFFLINE' && droneStatus !== 'TARGET_REACHED')   etaEntries.push({ label: 'DRONE',     eta: droneEtaSec,     status: droneStatus ?? 'STANDBY' });
+  if (buoyEtaSec  != null && buoyStatus  !== 'OFFLINE' && buoyStatus  !== 'TARGET_REACHED')   etaEntries.push({ label: 'BUOY',      eta: buoyEtaSec,      status: buoyStatus  ?? 'STANDBY' });
+  if (responderEtaSec != null && responderStatus !== 'OFFLINE' && responderStatus !== 'TARGET_REACHED') etaEntries.push({ label: 'TEAM',  eta: responderEtaSec, status: responderStatus ?? 'STANDBY' });
+  const fastestLabel = etaEntries.length > 0
+    ? etaEntries.sort((a, b) => a.eta - b.eta)[0].label
+    : null;
 
   return (
     <div className="w-full h-full bg-[#111827] flex flex-col p-4 space-y-4 overflow-y-auto font-mono text-gray-200 select-none border-b border-[#1F293D]">
@@ -159,11 +213,11 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
             <span className="text-gray-400 text-[10px]">WATER VELOCITY:</span>
-            <div className="font-bold text-white">{sensorData.waterVelocity.toFixed(1)} m/s</div>
+            <div className="font-bold text-white">{sensorData?.waterVelocity != null ? `${sensorData.waterVelocity.toFixed(1)} m/s` : 'N/A'}</div>
           </div>
           <div>
             <span className="text-gray-400 text-[10px]">DRIFT HEADING:</span>
-            <div className="font-bold text-white">{sensorData.driftHeading}°</div>
+            <div className="font-bold text-white">{sensorData?.driftHeading != null ? `${sensorData.driftHeading}°` : 'N/A'}</div>
           </div>
         </div>
 
@@ -183,6 +237,102 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           </div>
         )}
       </div>
+
+      {/* Predictive Drift Section */}
+      {activeDistress && (
+        <div className="bg-[#090D16] p-3.5 rounded-lg border border-[#06B6D4]/30 space-y-2.5 animate-fade-in">
+          <div className="flex items-center justify-between border-b border-[#1F293D] pb-1.5">
+            <span className="text-xs font-bold text-[#06B6D4] flex items-center gap-1.5">
+              <Compass className="w-4 h-4 text-[#06B6D4]" />
+              PREDICTIVE DRIFT IMPACT ZONE
+            </span>
+            <span className="text-[10px] text-gray-400">DECISION SUPPORT</span>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            {!isConnected && (
+              <div className="bg-[#EF4444]/15 border border-[#EF4444]/30 rounded p-2 text-[10px] text-[#EF4444] font-bold flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 animate-pulse" />
+                <span>OFFLINE MODE - LAST KNOWN TELEMETRY EST.</span>
+              </div>
+            )}
+
+            {sensorData?.waterVelocity === undefined || sensorData?.waterVelocity === null ? (
+              <div className="text-[#F59E0B] font-bold text-center py-2 bg-gray-900/50 rounded border border-dashed border-[#F59E0B]/30">
+                DRIFT MODEL: WAITING FOR CURRENT DATA
+              </div>
+            ) : sensorData?.driftHeading === undefined || sensorData?.driftHeading === null ? (
+              <div className="text-[#EF4444] font-bold text-center py-2 bg-gray-900/50 rounded border border-dashed border-[#EF4444]/30">
+                DRIFT VECTOR: UNAVAILABLE
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-b border-[#1F293D]/50 pb-2">
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">CURRENT:</span>
+                    <span className="font-bold text-white">
+                      {sensorData.waterVelocity.toFixed(1)} m/s
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">HEADING:</span>
+                    <span className="font-bold text-white">{sensorData.driftHeading}°</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">WINDOW:</span>
+                    <span className="font-bold text-[#06B6D4]">{predictionWindow} sec</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400 text-[10px] block">ESTIMATED DRIFT:</span>
+                    <span className="font-bold text-white">~{(sensorData.waterVelocity * predictionWindow).toFixed(1)} m</span>
+                  </div>
+                </div>
+
+                <div className="bg-[#111827] p-2.5 rounded border border-[#06B6D4]/20 text-[10px] space-y-1 text-gray-400">
+                  <div className="flex justify-between">
+                    <span>PROJECTED POSITION:</span>
+                    <span className="font-mono text-white">Estimated Downstream</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>UNCERTAINTY CORRIDOR:</span>
+                    <span className="font-mono text-[#06B6D4]">
+                      {((4 + 0.2 * predictionWindow + 0.08 * (sensorData.waterVelocity * predictionWindow)) * 2).toFixed(1)}m Max Width
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>CONFIDENCE:</span>
+                    <span className="font-mono text-[#F59E0B] uppercase tracking-wider font-bold">SIMULATED MODEL</span>
+                  </div>
+                </div>
+
+                {/* Prediction Window Selector Control */}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">PREDICTOR WINDOW:</span>
+                  <div className="flex space-x-1.5">
+                    {([15, 30, 45, 60] as const).map((sec) => (
+                      <button
+                        key={sec}
+                        onClick={() => setPredictionWindow && setPredictionWindow(sec)}
+                        className={`px-2 py-0.5 text-[10px] font-mono rounded font-bold transition-all border ${
+                          predictionWindow === sec
+                            ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4]'
+                            : 'bg-gray-800/50 border-gray-700 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {sec}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="text-[9px] text-gray-500 italic leading-snug pt-1 border-t border-[#1F293D]/30 mt-1">
+                  * Note: This is a simplified first-order drift prediction model. Real deployments incorporate measured currents, wind, obstacles, bathymetry and other environmental variables.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Spatial Matrix & Drone Status */}
       {hydrodynamics && (
@@ -208,6 +358,153 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           </div>
         </div>
       )}
+
+      {/* ── RESCUE RESPONSE ETA ENGINE ─────────────────────────────────── */}
+      <div className="bg-[#090D16] p-3.5 rounded-lg border border-[#10B981]/30 space-y-2.5">
+        <div className="flex items-center justify-between border-b border-[#1F293D] pb-1.5">
+          <span className="text-xs font-bold text-[#10B981] flex items-center gap-1.5">
+            <Timer className="w-4 h-4 text-[#10B981]" />
+            RESCUE RESPONSE ETA
+          </span>
+          <span className="text-[10px] text-gray-400">PROJECTED ARRIVAL</span>
+        </div>
+
+        {!hasTarget ? (
+          <div className="text-[11px] text-gray-500 italic text-center py-2">Awaiting distress event...</div>
+        ) : (
+          <>
+            {/* Drone Row */}
+            {(()=> {
+              const isFastest = fastestLabel === 'DRONE';
+              const reached   = droneStatus === 'TARGET_REACHED';
+              const offline   = droneStatus === 'OFFLINE';
+              const stale     = !isConnected;
+              return (
+                <div className={`p-2.5 rounded border text-xs ${
+                  reached  ? 'bg-[#10B981]/10 border-[#10B981]/50' :
+                  offline  ? 'bg-gray-800/30 border-gray-700' :
+                  isFastest? 'bg-[#10B981]/10 border-[#10B981]/60' :
+                             'bg-[#111827] border-[#1F293D]'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`font-bold text-[11px] flex items-center gap-1 ${
+                      reached ? 'text-[#10B981]' : offline ? 'text-gray-500' : isFastest ? 'text-[#10B981]' : 'text-[#06B6D4]'
+                    }`}>
+                      <Navigation className="w-3 h-3" />
+                      UAV-RESCUE-01
+                      {isFastest && !reached && !offline && (
+                        <span className="ml-1 text-[9px] bg-[#10B981]/20 border border-[#10B981]/50 text-[#10B981] px-1 py-0.5 rounded">FASTEST</span>
+                      )}
+                    </span>
+                    <span className={`text-[10px] font-bold ${
+                      reached ? 'text-[#10B981]' : offline ? 'text-gray-500' : stale ? 'text-[#F59E0B]' : 'text-gray-400'
+                    }`}>
+                      {reached ? 'TARGET REACHED' : offline ? 'OFFLINE' : stale ? 'STALE TELEMETRY' : droneStatus}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-gray-400 text-[10px]">
+                    <span>DIST: <span className="text-white font-bold">{droneDist != null ? `${Math.round(droneDist)}m` : '—'}</span></span>
+                    <span>EST. ETA: <span className={`font-bold ${
+                      reached ? 'text-[#10B981]' : isFastest ? 'text-[#10B981]' : 'text-gray-200'
+                    }`}>{reached ? '0s' : formatEta(droneEtaSec)}</span></span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Buoy Row */}
+            {(()=> {
+              const isFastest = fastestLabel === 'BUOY';
+              const reached   = buoyStatus === 'TARGET_REACHED';
+              const offline   = buoyStatus === 'OFFLINE';
+              const stale     = !isConnected;
+              return (
+                <div className={`p-2.5 rounded border text-xs ${
+                  reached  ? 'bg-[#10B981]/10 border-[#10B981]/50' :
+                  offline  ? 'bg-gray-800/30 border-gray-700' :
+                  isFastest? 'bg-[#10B981]/10 border-[#10B981]/60' :
+                             'bg-[#111827] border-[#1F293D]'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`font-bold text-[11px] flex items-center gap-1 ${
+                      reached ? 'text-[#10B981]' : offline ? 'text-gray-500' : isFastest ? 'text-[#10B981]' : 'text-[#F59E0B]'
+                    }`}>
+                      <Waves className="w-3 h-3" />
+                      BUOY-HYDRO-02
+                      {isFastest && !reached && !offline && (
+                        <span className="ml-1 text-[9px] bg-[#10B981]/20 border border-[#10B981]/50 text-[#10B981] px-1 py-0.5 rounded">FASTEST</span>
+                      )}
+                    </span>
+                    <span className={`text-[10px] font-bold ${
+                      reached ? 'text-[#10B981]' : offline ? 'text-gray-500' : stale ? 'text-[#F59E0B]' : 'text-gray-400'
+                    }`}>
+                      {reached ? 'TARGET REACHED' : offline ? 'OFFLINE' : stale ? 'STALE TELEMETRY' : buoyStatus}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-gray-400 text-[10px]">
+                    <span>DIST: <span className="text-white font-bold">{buoyDist != null ? `${Math.round(buoyDist)}m` : '—'}</span></span>
+                    <span>SIMULATED ETA: <span className={`font-bold ${
+                      reached ? 'text-[#10B981]' : isFastest ? 'text-[#10B981]' : 'text-gray-200'
+                    }`}>{reached ? '0s' : formatEta(buoyEtaSec)}</span></span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Human Responder Row */}
+            {(()=> {
+              const isFastest = fastestLabel === 'TEAM';
+              const reached   = responderStatus === 'TARGET_REACHED';
+              const offline   = responderStatus === 'OFFLINE';
+              const stale     = !isConnected;
+              return (
+                <div className={`p-2.5 rounded border text-xs ${
+                  reached  ? 'bg-[#10B981]/10 border-[#10B981]/50' :
+                  offline  ? 'bg-gray-800/30 border-gray-700' :
+                  isFastest? 'bg-[#10B981]/10 border-[#10B981]/60' :
+                             'bg-[#111827] border-[#1F293D]'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`font-bold text-[11px] flex items-center gap-1 ${
+                      reached ? 'text-[#10B981]' : offline ? 'text-gray-500' : isFastest ? 'text-[#10B981]' : 'text-[#A78BFA]'
+                    }`}>
+                      <Send className="w-3 h-3" />
+                      RESCUE TEAM-01
+                      {isFastest && !reached && !offline && (
+                        <span className="ml-1 text-[9px] bg-[#10B981]/20 border border-[#10B981]/50 text-[#10B981] px-1 py-0.5 rounded">FASTEST</span>
+                      )}
+                    </span>
+                    <span className={`text-[10px] font-bold ${
+                      reached ? 'text-[#10B981]' : offline ? 'text-gray-500' : stale ? 'text-[#F59E0B]' : 'text-gray-400'
+                    }`}>
+                      {reached ? 'TARGET REACHED' : offline ? 'OFFLINE' : stale ? 'STALE TELEMETRY' : responderStatus}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-gray-400 text-[10px]">
+                    <span>DIST: <span className="text-white font-bold">{responderDist != null ? `${Math.round(responderDist)}m` : '—'}</span></span>
+                    <span>EST. ETA: <span className={`font-bold ${
+                      reached ? 'text-[#10B981]' : isFastest ? 'text-[#10B981]' : 'text-gray-200'
+                    }`}>{reached ? '0s' : formatEta(responderEtaSec)}</span></span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Recommended First Response Banner */}
+            {fastestLabel && (
+              <div className="bg-[#10B981]/10 border border-[#10B981]/40 rounded p-2 text-[10px] text-[#10B981] font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  RECOMMENDED FIRST RESPONSE:{' '}
+                  <span className="text-white">
+                    {fastestLabel === 'DRONE' ? 'UAV-RESCUE-01' : fastestLabel === 'BUOY' ? 'BUOY-HYDRO-02' : 'RESCUE TEAM-01'}
+                  </span>
+                </span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Payload & Gimbal Lock Indicators */}
       <div className="flex items-center justify-between bg-[#090D16] p-2.5 rounded-lg border border-[#1F293D] text-xs">

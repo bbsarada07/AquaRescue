@@ -1,22 +1,35 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMap, Tooltip } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMap, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { Compass, Locate, Sun, Flame } from 'lucide-react';
 import { FilteredResult, GPSCoordinate } from '@/lib/kalman';
-import { HydrodynamicVectorResult } from '@/lib/hydrodynamics';
+import { HydrodynamicVectorResult, calculatePredictiveDriftZone, offsetCoordinate } from '@/lib/hydrodynamics';
 
 export interface LeafletMapViewProps {
   filteredTarget: FilteredResult | GPSCoordinate | null;
   rawTarget: GPSCoordinate | null;
   droneLocation: GPSCoordinate | null;
   buoyLocation: GPSCoordinate | null;
+  responderLocation?: GPSCoordinate | null;
   dronePath: GPSCoordinate[];
   buoyPath: GPSCoordinate[];
+  responderPath?: GPSCoordinate[];
   hydrodynamics: HydrodynamicVectorResult | null;
   activeDistress: boolean;
   puckId: string | null;
+  predictionWindow?: number;
+  setPredictionWindow?: (sec: 15 | 30 | 45 | 60) => void;
+  sensorData?: {
+    screechConfidence: number;
+    thermalDelta: number;
+    waterVelocity: number;
+    driftHeading: number;
+  };
+  droneStatus?: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  buoyStatus?: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  responderStatus?: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
 }
 
 // Sub-component to dynamically fly/pan map camera when target updates
@@ -96,16 +109,39 @@ const createBuoyIcon = () =>
     iconAnchor: [20, 20],
   });
 
+const createResponderIcon = () =>
+  L.divIcon({
+    className: 'custom-leaflet-icon',
+    html: `
+      <div class="relative flex items-center justify-center w-10 h-10 -ml-5 -mt-5">
+        <div class="w-0 h-0 border-l-[10px] border-r-[10px] border-b-[18px] border-l-transparent border-r-transparent border-b-[#A78BFA] drop-shadow-lg"></div>
+        <div class="absolute -bottom-6 whitespace-nowrap bg-[#090D16]/90 text-[#A78BFA] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#A78BFA]/50 shadow-xl">
+          RESCUE-TEAM-01
+        </div>
+      </div>
+    `,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  });
+
 export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
   filteredTarget,
   rawTarget,
   droneLocation,
   buoyLocation,
+  responderLocation = null,
   dronePath,
   buoyPath,
+  responderPath = [],
   hydrodynamics,
   activeDistress,
   puckId,
+  predictionWindow = 30,
+  setPredictionWindow,
+  sensorData,
+  droneStatus = 'STANDBY',
+  buoyStatus = 'STANDBY',
+  responderStatus = 'STANDBY',
 }) => {
   const [mapMode, setMapMode] = useState<'TACTICAL' | 'HYBRID' | 'THERMAL'>('TACTICAL');
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
@@ -123,6 +159,9 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
 
   const buoyLat = buoyLocation?.lat ?? 17.383044;
   const buoyLng = buoyLocation?.lng ?? 78.485171;
+
+  const responderLat = responderLocation?.lat ?? 17.382044;
+  const responderLng = responderLocation?.lng ?? 78.488671;
 
   const activePuckId = puckId || 'PUCK-ALPHA-04';
 
@@ -153,6 +192,19 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
     [buoyPath]
   );
 
+  const responderPolyline: [number, number][] = useMemo(
+    () => responderPath.map(p => [p.lat, p.lng]),
+    [responderPath]
+  );
+
+  // ETA connection line from responder to target
+  const responderToTargetLine: [number, number][] = useMemo(
+    () => activeDistress && responderStatus !== 'STANDBY'
+      ? [[responderLat, responderLng], [targetLat, targetLng]]
+      : [],
+    [activeDistress, responderStatus, responderLat, responderLng, targetLat, targetLng]
+  );
+
   const interceptPolyline: [number, number][] = useMemo(
     () => [
       [buoyLat, buoyLng],
@@ -160,6 +212,28 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
     ],
     [buoyLat, buoyLng, targetLat, targetLng]
   );
+
+  const driftZonePoints = useMemo<[number, number][]>(() => {
+    if (!activeDistress || !filteredTarget || !sensorData) return [];
+    const points = calculatePredictiveDriftZone(
+      { lat: targetLat, lng: targetLng },
+      sensorData.waterVelocity,
+      sensorData.driftHeading,
+      predictionWindow
+    );
+    return points.map(p => [p.lat, p.lng]);
+  }, [activeDistress, filteredTarget, targetLat, targetLng, sensorData, predictionWindow]);
+
+  const centerlinePoints = useMemo<[number, number][]>(() => {
+    if (!activeDistress || !filteredTarget || !sensorData || sensorData.waterVelocity === 0) return [];
+    const start = { lat: targetLat, lng: targetLng };
+    const distance = sensorData.waterVelocity * predictionWindow;
+    const end = offsetCoordinate(start, distance, sensorData.driftHeading);
+    return [
+      [start.lat, start.lng],
+      [end.lat, end.lng]
+    ];
+  }, [activeDistress, filteredTarget, targetLat, targetLng, sensorData, predictionWindow]);
 
   const noiseDelta = (filteredTarget as FilteredResult)?.noiseDeltaMeters ?? 0;
 
@@ -206,6 +280,31 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
           />
         )}
 
+        {/* Predictive Drift Impact Zone (Cyan Corridor) */}
+        {activeDistress && driftZonePoints.length > 0 && (
+          <Polygon
+            positions={driftZonePoints}
+            pathOptions={{
+              color: '#06B6D4',
+              fillColor: '#06B6D4',
+              weight: 1.5,
+              className: 'drift-corridor-polygon'
+            }}
+          />
+        )}
+
+        {/* Predictive Drift Flow Centerline */}
+        {activeDistress && centerlinePoints.length > 0 && (
+          <Polyline
+            positions={centerlinePoints}
+            pathOptions={{
+              color: '#06B6D4',
+              weight: 2,
+              className: 'drift-corridor-centerline'
+            }}
+          />
+        )}
+
         {/* Raw GPS Jitter Point */}
         {activeDistress && rawTarget && (
           <Marker position={[rawLat, rawLng]} icon={createRawGpsIcon()}>
@@ -237,6 +336,29 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
         <Marker position={[buoyLat, buoyLng]} icon={createBuoyIcon()}>
           <Tooltip direction="bottom" opacity={0.95} permanent={false}>
             <span className="font-mono text-xs text-amber-400">BUOY-HYDRO-02</span>
+          </Tooltip>
+        </Marker>
+
+        {/* Responder Path Trail */}
+        {responderPolyline.length > 1 && responderStatus !== 'STANDBY' && (
+          <Polyline
+            positions={responderPolyline}
+            pathOptions={{ color: '#A78BFA', weight: 2.5, opacity: 0.75, dashArray: '4, 4' }}
+          />
+        )}
+
+        {/* Responder → Target ETA Connection Line */}
+        {responderToTargetLine.length > 0 && (
+          <Polyline
+            positions={responderToTargetLine}
+            pathOptions={{ color: '#A78BFA', weight: 1.5, opacity: 0.55, dashArray: '3, 6' }}
+          />
+        )}
+
+        {/* Human Rescue Team Marker */}
+        <Marker position={[responderLat, responderLng]} icon={createResponderIcon()}>
+          <Tooltip direction="bottom" opacity={0.95} permanent={false}>
+            <span className="font-mono text-xs" style={{ color: '#A78BFA' }}>RESCUE-TEAM-01</span>
           </Tooltip>
         </Marker>
       </MapContainer>
@@ -303,6 +425,38 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
             <span className="text-[#F59E0B] font-semibold">{noiseDelta}m (FILTERED)</span>
           </div>
         </div>
+
+        {/* Predictive Drift Control & HUD Overlay */}
+        {activeDistress && sensorData && (
+          <div className="bg-[#111827]/90 backdrop-blur border border-[#06B6D4]/40 rounded-lg p-2.5 font-mono text-[11px] text-gray-300 space-y-1.5 shadow-2xl max-w-xs">
+            <div className="flex justify-between items-center border-b border-[#1F293D] pb-1">
+              <span className="text-[#06B6D4] font-bold flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-[#06B6D4] animate-pulse"></span>
+                DRIFT PREDICTION · {predictionWindow} SEC
+              </span>
+            </div>
+            
+            {/* Window selector */}
+            <div className="flex items-center justify-between gap-4 pt-0.5">
+              <span className="text-gray-400 text-[10px]">TIME WINDOW:</span>
+              <div className="flex space-x-1">
+                {([15, 30, 45, 60] as const).map(sec => (
+                  <button
+                    key={sec}
+                    onClick={() => setPredictionWindow && setPredictionWindow(sec)}
+                    className={`px-1.5 py-0.5 text-[9px] font-mono rounded font-bold transition-all border ${
+                      predictionWindow === sec
+                        ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4]'
+                        : 'bg-gray-800/50 border-gray-700 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Recenter Button (Bottom Right Overlay) */}
@@ -334,6 +488,10 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
         <div className="flex items-center space-x-2">
           <span className="w-3.5 h-0.5 bg-[#10B981] inline-block"></span>
           <span>DRIFT COMPENSATED INTERCEPT</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="w-3.5 h-2 bg-[#06B6D4]/30 border border-[#06B6D4] inline-block"></span>
+          <span>DRIFT IMPACT ZONE</span>
         </div>
       </div>
     </div>

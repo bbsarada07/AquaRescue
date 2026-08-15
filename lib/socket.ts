@@ -46,6 +46,7 @@ export interface AquaRescueState {
   droneHeading: number;
   buoyLocation: GPSCoordinate;
   buoyHeading: number;
+  responderLocation: GPSCoordinate;
   sensorData: {
     screechConfidence: number;
     thermalDelta: number;
@@ -58,6 +59,13 @@ export interface AquaRescueState {
   aiBriefing: BriefingResponse | null;
   dronePath: GPSCoordinate[];
   buoyPath: GPSCoordinate[];
+  responderPath: GPSCoordinate[];
+  droneStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  buoyStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  responderStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  lastPacketTimestamp: number | null;
+  missionStartTime: number | null;
+  missionId: string | null;
   eventLogs: LogEntry[];
   audioVoiceEnabled: boolean;
   serverUrl: string;
@@ -68,6 +76,7 @@ const DEFAULT_SERVER_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localho
 const INITIAL_VICTIM: GPSCoordinate = { lat: 17.385044, lng: 78.486671 };
 const INITIAL_DRONE: GPSCoordinate = { lat: 17.387544, lng: 78.489171 };
 const INITIAL_BUOY: GPSCoordinate = { lat: 17.383044, lng: 78.485171 };
+const INITIAL_RESPONDER: GPSCoordinate = { lat: 17.382044, lng: 78.488671 };
 
 export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
   // High-frequency useRef buffer for 100ms telemetry ticks
@@ -95,6 +104,7 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     droneHeading: 225,
     buoyLocation: INITIAL_BUOY,
     buoyHeading: 45,
+    responderLocation: INITIAL_RESPONDER,
     sensorData: {
       screechConfidence: 0.96,
       thermalDelta: 5.2,
@@ -107,6 +117,13 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     aiBriefing: null,
     dronePath: [INITIAL_DRONE],
     buoyPath: [INITIAL_BUOY],
+    responderPath: [INITIAL_RESPONDER],
+    droneStatus: 'STANDBY',
+    buoyStatus: 'STANDBY',
+    responderStatus: 'STANDBY',
+    lastPacketTimestamp: null,
+    missionStartTime: null,
+    missionId: null,
     eventLogs: [],
     audioVoiceEnabled: true,
     serverUrl
@@ -151,22 +168,50 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
             data.timestamp || Date.now()
           );
 
-          // Compute Hydrodynamic Vector Compensation
-          const hydro = calculateDriftCompensatedVector(
-            { lat: kalmanOut.lat, lng: kalmanOut.lng },
-            data.sensor_data.water_velocity_ms,
-            data.sensor_data.drift_heading_deg
-          );
-
           setState(prev => {
-            // Update Drone and Buoy path simulation positions towards targets
+            // Update Drone, Buoy and Responder simulation positions towards target
             const newDroneLat = prev.droneLocation.lat + (kalmanOut.lat - prev.droneLocation.lat) * 0.02;
             const newDroneLng = prev.droneLocation.lng + (kalmanOut.lng - prev.droneLocation.lng) * 0.02;
             const newBuoyLat = prev.buoyLocation.lat + (kalmanOut.lat - prev.buoyLocation.lat) * 0.015;
             const newBuoyLng = prev.buoyLocation.lng + (kalmanOut.lng - prev.buoyLocation.lng) * 0.015;
+            const newResponderLat = prev.responderLocation.lat + (kalmanOut.lat - prev.responderLocation.lat) * 0.008;
+            const newResponderLng = prev.responderLocation.lng + (kalmanOut.lng - prev.responderLocation.lng) * 0.008;
 
             const updatedDronePath = [...prev.dronePath, { lat: newDroneLat, lng: newDroneLng }].slice(-40);
             const updatedBuoyPath = [...prev.buoyPath, { lat: newBuoyLat, lng: newBuoyLng }].slice(-40);
+            const updatedResponderPath = [...prev.responderPath, { lat: newResponderLat, lng: newResponderLng }].slice(-40);
+
+            // Compute Hydrodynamic Vector Compensation using active coordinates
+            const hydro = calculateDriftCompensatedVector(
+              { lat: kalmanOut.lat, lng: kalmanOut.lng },
+              data.sensor_data.water_velocity_ms,
+              data.sensor_data.drift_heading_deg,
+              { lat: newBuoyLat, lng: newBuoyLng },
+              { lat: newDroneLat, lng: newDroneLng }
+            );
+
+            // Process status transitions
+            const droneDist = KalmanFilter2D.haversineDistanceMeters(newDroneLat, newDroneLng, kalmanOut.lat, kalmanOut.lng);
+            const buoyDist = KalmanFilter2D.haversineDistanceMeters(newBuoyLat, newBuoyLng, kalmanOut.lat, kalmanOut.lng);
+            const responderDist = KalmanFilter2D.haversineDistanceMeters(newResponderLat, newResponderLng, kalmanOut.lat, kalmanOut.lng);
+
+            let nextDroneStatus = prev.droneStatus;
+            if (prev.droneStatus === 'DISPATCHED') nextDroneStatus = 'EN_ROUTE';
+            if ((prev.droneStatus === 'DISPATCHED' || prev.droneStatus === 'EN_ROUTE') && droneDist < 8) {
+              nextDroneStatus = 'TARGET_REACHED';
+            }
+
+            let nextBuoyStatus = prev.buoyStatus;
+            if (prev.buoyStatus === 'DISPATCHED') nextBuoyStatus = 'EN_ROUTE';
+            if ((prev.buoyStatus === 'DISPATCHED' || prev.buoyStatus === 'EN_ROUTE') && buoyDist < 8) {
+              nextBuoyStatus = 'TARGET_REACHED';
+            }
+
+            let nextResponderStatus = prev.responderStatus;
+            if (prev.responderStatus === 'DISPATCHED') nextResponderStatus = 'EN_ROUTE';
+            if ((prev.responderStatus === 'DISPATCHED' || prev.responderStatus === 'EN_ROUTE') && responderDist < 8) {
+              nextResponderStatus = 'TARGET_REACHED';
+            }
 
             return {
               ...prev,
@@ -176,6 +221,7 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
               filteredLocation: kalmanOut,
               droneLocation: { lat: newDroneLat, lng: newDroneLng },
               buoyLocation: { lat: newBuoyLat, lng: newBuoyLng },
+              responderLocation: { lat: newResponderLat, lng: newResponderLng },
               sensorData: {
                 screechConfidence: data.sensor_data.audio_screech_confidence,
                 thermalDelta: data.sensor_data.thermal_delta_c,
@@ -186,7 +232,14 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
               },
               hydrodynamics: hydro,
               dronePath: updatedDronePath,
-              buoyPath: updatedBuoyPath
+              buoyPath: updatedBuoyPath,
+              responderPath: updatedResponderPath,
+              droneStatus: nextDroneStatus,
+              buoyStatus: nextBuoyStatus,
+              responderStatus: nextResponderStatus,
+              lastPacketTimestamp: data.timestamp,
+              missionStartTime: prev.missionStartTime || Date.now(),
+              missionId: prev.missionId || `AR-${Math.floor(100 + Math.random() * 899)}`
             };
           });
         }
@@ -232,6 +285,13 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
         `Lat: ${data.location.lat.toFixed(6)}, Lng: ${data.location.lng.toFixed(6)} | Audio: ${(data.sensor_data.audio_screech_confidence * 100).toFixed(0)}%`
       );
 
+      // ETA Timeline logs
+      addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
+      addLog('SYSTEM', 'UAV-RESCUE-01 INITIAL ESTIMATED ETA: 18 SEC');
+      addLog('SYSTEM', 'BUOY-HYDRO-02 INITIAL ESTIMATED ETA: 31 SEC');
+      addLog('SYSTEM', 'RESPONSE TEAM INITIAL ESTIMATED ETA: 1M 42S');
+      addLog('AI', 'UAV-RESCUE-01 RECOMMENDED AS FASTEST RESPONSE');
+
       // Trigger Gemini AI Tactical Incident Briefing
       try {
         const briefing = await generateTacticalBriefing(data);
@@ -272,6 +332,11 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     if (socketRef.current?.connected) {
       socketRef.current.emit('EXECUTE_RESCUE', payload);
     }
+    setState(prev => ({
+      ...prev,
+      droneStatus: 'DISPATCHED',
+      buoyStatus: 'DISPATCHED'
+    }));
     addLog('COMMAND', `EXECUTE_RESCUE sent for ${state.puckId}`, `Drone: LOCK_GIMBAL_AND_DROP | Buoy Drift Heading: ${hydro?.compensatedHeadingDeg || 128}°`);
   }, [state.activeDistress, state.puckId, state.filteredLocation, state.hydrodynamics, addLog]);
 
@@ -285,6 +350,10 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     if (socketRef.current?.connected) {
       socketRef.current.emit('OVERRIDE_DISPATCH', payload);
     }
+    setState(prev => ({
+      ...prev,
+      responderStatus: 'DISPATCHED'
+    }));
     addLog('COMMAND', `OVERRIDE DISPATCH triggered for target ${state.puckId}`);
   }, [state.puckId, state.filteredLocation, addLog]);
 
@@ -298,6 +367,10 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     if (socketRef.current?.connected) {
       socketRef.current.emit('MANUAL_PAYLOAD_DROP', payload);
     }
+    setState(prev => ({
+      ...prev,
+      droneStatus: 'DISPATCHED'
+    }));
     addLog('COMMAND', `MANUAL PAYLOAD DROP sent to UAV for ${state.puckId}`);
   }, [state.puckId, state.filteredLocation, addLog]);
 
@@ -316,6 +389,18 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
         variance: 0.1,
         noiseDeltaMeters: 0
       },
+      droneLocation: INITIAL_DRONE,
+      buoyLocation: INITIAL_BUOY,
+      responderLocation: INITIAL_RESPONDER,
+      dronePath: [INITIAL_DRONE],
+      buoyPath: [INITIAL_BUOY],
+      responderPath: [INITIAL_RESPONDER],
+      droneStatus: 'STANDBY',
+      buoyStatus: 'STANDBY',
+      responderStatus: 'STANDBY',
+      lastPacketTimestamp: null,
+      missionStartTime: null,
+      missionId: null,
       aiBriefing: null,
       hydrodynamics: null
     }));
@@ -356,6 +441,13 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       socketRef.current.emit('SIMULATE_TELEMETRY', mockPayload);
     } else {
       processTelemetry(mockPayload);
+      // ETA Timeline logs
+      addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
+      addLog('SYSTEM', 'UAV-RESCUE-01 INITIAL ESTIMATED ETA: 18 SEC');
+      addLog('SYSTEM', 'BUOY-HYDRO-02 INITIAL ESTIMATED ETA: 31 SEC');
+      addLog('SYSTEM', 'RESPONSE TEAM INITIAL ESTIMATED ETA: 1M 42S');
+      addLog('AI', 'UAV-RESCUE-01 RECOMMENDED AS FASTEST RESPONSE');
+
       generateTacticalBriefing(mockPayload).then(briefing => {
         setState(prev => ({ ...prev, aiBriefing: briefing }));
         if (state.audioVoiceEnabled) speakBriefing(briefing.summary);
