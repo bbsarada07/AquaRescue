@@ -133,6 +133,14 @@ app.get('/health', (req, res) => {
   });
 });
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`[AquaRescue Server] Port ${PORT} is already in use by an active server instance.`);
+  } else {
+    console.error('[AquaRescue Server Error]', err);
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(` AquaRescue Laptop 2 Socket.io Server Running on :${PORT} `);

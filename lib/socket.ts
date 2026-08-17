@@ -256,6 +256,11 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     };
   }, []);
 
+  const audioVoiceEnabledRef = useRef(state.audioVoiceEnabled);
+  useEffect(() => {
+    audioVoiceEnabledRef.current = state.audioVoiceEnabled;
+  }, [state.audioVoiceEnabled]);
+
   // Socket Connection setup
   useEffect(() => {
     addLog('SYSTEM', `Connecting to WebSocket server at ${serverUrl}...`);
@@ -298,7 +303,7 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
         setState(prev => ({ ...prev, aiBriefing: briefing }));
         addLog('AI', 'Tactical AI Incident Briefing generated');
 
-        if (state.audioVoiceEnabled) {
+        if (audioVoiceEnabledRef.current) {
           speakBriefing(briefing.summary);
         }
       } catch (err) {
@@ -309,7 +314,7 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     return () => {
       socket.disconnect();
     };
-  }, [serverUrl, processTelemetry, addLog, state.audioVoiceEnabled]);
+  }, [serverUrl, processTelemetry, addLog]);
 
   // Action Dispatch Functions
   const sendExecuteRescue = useCallback(() => {

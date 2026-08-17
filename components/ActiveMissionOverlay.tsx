@@ -1,32 +1,46 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
-  ShieldAlert,
-  Clock,
-  Radio,
-  Navigation,
-  Send,
-  CheckCircle2,
   AlertTriangle,
-  RotateCcw,
-  Zap,
+  Bot,
   Crosshair,
-  Compass,
+  LifeBuoy,
+  LocateFixed,
+  MapPinned,
+  Mic,
+  Navigation,
+  Radio,
+  Send,
+  Settings2,
+  ShieldAlert,
+  UserRound,
   Waves,
-  Cpu,
-  Layers,
-  Sparkles,
-  RefreshCw,
+  Clock3,
+  Video,
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import dynamic from 'next/dynamic';
 import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
-import { HydrodynamicVectorResult, RESPONDER_SPEEDS } from '@/lib/hydrodynamics';
+import { HydrodynamicVectorResult, RESPONDER_SPEEDS, calculateBearingDeg } from '@/lib/hydrodynamics';
 import { BriefingResponse } from '@/lib/gemini';
 import { LogEntry } from '@/lib/socket';
 import AIBriefing from './AIBriefing';
+import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
+import WorkspacePanel from './WorkspacePanel';
+import {
+  CRITICAL_PANEL_IDS,
+  cloneLayoutMap,
+  DEFAULT_PANEL_LAYOUTS,
+  DockTarget,
+  getDockLayout,
+  PANEL_ORDER,
+  PanelId,
+  PanelLayoutMap,
+  PRESET_LAYOUTS,
+  WorkspacePreset,
+} from '@/lib/panelWorkspace';
 
 const LeafletMapView = dynamic(
   () => import('./LeafletMapView'),
@@ -34,12 +48,13 @@ const LeafletMapView = dynamic(
     ssr: false,
     loading: () => (
       <div className="w-full h-full bg-[#090D16] flex items-center justify-center font-mono text-xs text-[#06B6D4]">
-        LOADING MISSION MAP...
+        LOADING INCIDENT MAP...
       </div>
     ),
   }
 );
 
+const STORAGE_KEY = 'aquarescue.workspace.v2';
 
 export interface ActiveMissionOverlayProps {
   missionId: string | null;
@@ -78,6 +93,55 @@ export interface ActiveMissionOverlayProps {
   onToggleAudio: () => void;
 }
 
+const isPreset = (value: string): value is WorkspacePreset =>
+  value === 'COMMAND' || value === 'RESCUE' || value === 'DRONE' || value === 'FULL_TACTICAL';
+
+const clampPct = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+const formatEtaClock = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+const panelIconMap: Record<PanelId, React.ReactNode> = {
+  'active-target': <LocateFixed className="w-3.5 h-3.5" />,
+  'kalman-gps': <MapPinned className="w-3.5 h-3.5" />,
+  'raw-gps': <MapPinned className="w-3.5 h-3.5" />,
+  'drone-camera': <Video className="w-3.5 h-3.5" />,
+  'drone-sensors': <Crosshair className="w-3.5 h-3.5" />,
+  'rescue-team': <UserRound className="w-3.5 h-3.5" />,
+  'audio-analysis': <Mic className="w-3.5 h-3.5" />,
+  hydrodynamics: <Waves className="w-3.5 h-3.5" />,
+  'ai-briefing': <Bot className="w-3.5 h-3.5" />,
+  'incident-timeline': <Clock3 className="w-3.5 h-3.5" />,
+  'mission-controls': <Send className="w-3.5 h-3.5" />,
+};
+
+const panelTitleMap: Record<PanelId, string> = {
+  'active-target': 'ACTIVE TARGET HUD',
+  'kalman-gps': 'GPS / KALMAN TELEMETRY',
+  'raw-gps': 'RAW GPS',
+  'drone-camera': 'DRONE CAMERA / VIDEO FEED',
+  'drone-sensors': 'DRONE SENSOR CONTROLS',
+  'rescue-team': 'RESCUE TEAM LOCATION / TRACKING',
+  'audio-analysis': 'AUDIO & THERMAL ANALYSIS',
+  hydrodynamics: 'HYDRODYNAMIC DRIFT VECTOR',
+  'ai-briefing': 'GEMINI TACTICAL AI BRIEFING',
+  'incident-timeline': 'INCIDENT TIMELINE',
+  'mission-controls': 'MISSION CONTROLS',
+};
+
+const panelControlList: Array<{ id: PanelId; label: string }> = [
+  { id: 'drone-camera', label: 'Drone Camera' },
+  { id: 'active-target', label: 'Target Telemetry' },
+  { id: 'ai-briefing', label: 'AI Briefing' },
+  { id: 'rescue-team', label: 'Rescue Team' },
+  { id: 'audio-analysis', label: 'Audio Analysis' },
+  { id: 'hydrodynamics', label: 'Hydrodynamics' },
+  { id: 'incident-timeline', label: 'Incident Timeline' },
+];
+
 export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   missionId,
   missionStartTime,
@@ -107,432 +171,580 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   onResolveIncident,
   onToggleAudio,
 }) => {
-  // ── Mission Elapsed Timer ──────────────────────────────────────────────────
-  const [elapsedFormatted, setElapsedFormatted] = useState('00:00 ELAPSED');
+  const [cameraMode, setCameraMode] = useState<DroneCameraMode>('RGB');
+  const [elapsed, setElapsed] = useState('00:00');
+  const [panels, setPanels] = useState<PanelLayoutMap>(() => cloneLayoutMap(DEFAULT_PANEL_LAYOUTS));
+  const [activePreset, setActivePreset] = useState<WorkspacePreset>('FULL_TACTICAL');
+  const [emergencyFocusMode, setEmergencyFocusMode] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [dockPreview, setDockPreview] = useState<DockTarget | null>(null);
+  const [highlightedPanel, setHighlightedPanel] = useState<PanelId | null>(null);
+  const [workspaceSize, setWorkspaceSize] = useState({ width: 1400, height: 760 });
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const compactAppliedRef = useRef(false);
 
   useEffect(() => {
-    const updateTimer = () => {
+    const update = () => {
       if (!missionStartTime) {
-        setElapsedFormatted('00:00 ELAPSED');
+        setElapsed('00:00');
         return;
       }
-      const totalSec = Math.floor((Date.now() - missionStartTime) / 1000);
-      const mins = Math.floor(totalSec / 60);
-      const secs = totalSec % 60;
-      setElapsedFormatted(
-        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')} ELAPSED`
-      );
+      const totalSec = Math.max(0, Math.floor((Date.now() - missionStartTime) / 1000));
+      setElapsed(formatEtaClock(totalSec));
     };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
   }, [missionStartTime]);
 
-  // ── Target Coordinates Format ──────────────────────────────────────────────
+  useEffect(() => {
+    const payload = localStorage.getItem(STORAGE_KEY);
+    if (!payload) return;
+    try {
+      const parsed = JSON.parse(payload) as {
+        preset?: string;
+        emergencyFocusMode?: boolean;
+        panels?: Partial<PanelLayoutMap>;
+      };
+      if (parsed.preset && isPreset(parsed.preset)) {
+        setActivePreset(parsed.preset);
+      }
+      if (typeof parsed.emergencyFocusMode === 'boolean') {
+        setEmergencyFocusMode(parsed.emergencyFocusMode);
+      }
+      if (parsed.panels) {
+        setPanels((prev) => {
+          const next = cloneLayoutMap(prev);
+          for (const id of PANEL_ORDER) {
+            const incoming = parsed.panels?.[id];
+            if (!incoming) continue;
+            next[id] = {
+              ...next[id],
+              ...incoming,
+            };
+          }
+          return next;
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to restore workspace state:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        preset: activePreset,
+        emergencyFocusMode,
+        panels,
+      })
+    );
+  }, [activePreset, emergencyFocusMode, panels]);
+
+  useEffect(() => {
+    const updateSize = () => {
+      if (!workspaceRef.current) return;
+      setWorkspaceSize({
+        width: workspaceRef.current.clientWidth,
+        height: workspaceRef.current.clientHeight,
+      });
+    };
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
+  useEffect(() => {
+    if (workspaceSize.width >= 1366) {
+      compactAppliedRef.current = false;
+      return;
+    }
+    if (compactAppliedRef.current) return;
+    compactAppliedRef.current = true;
+    setPanels((prev) => {
+      const next = cloneLayoutMap(prev);
+      next['ai-briefing'].collapsed = true;
+      next['audio-analysis'].collapsed = true;
+      next['raw-gps'].collapsed = true;
+      return next;
+    });
+  }, [workspaceSize.width]);
+
   const targetLat = filteredLocation?.lat ?? 17.385044;
   const targetLng = filteredLocation?.lng ?? 78.486671;
 
-  // ── Haversine Distances & ETAs ─────────────────────────────────────────────
-  const droneDist = useMemo(() => {
-    if (!droneLocation) return 0;
-    return KalmanFilter2D.haversineDistanceMeters(
-      droneLocation.lat,
-      droneLocation.lng,
-      targetLat,
-      targetLng
-    );
-  }, [droneLocation, targetLat, targetLng]);
+  const droneDist = useMemo(
+    () => (droneLocation ? KalmanFilter2D.haversineDistanceMeters(droneLocation.lat, droneLocation.lng, targetLat, targetLng) : 0),
+    [droneLocation, targetLat, targetLng]
+  );
+  const buoyDist = useMemo(
+    () => (buoyLocation ? KalmanFilter2D.haversineDistanceMeters(buoyLocation.lat, buoyLocation.lng, targetLat, targetLng) : 0),
+    [buoyLocation, targetLat, targetLng]
+  );
+  const responderDist = useMemo(
+    () => (responderLocation ? KalmanFilter2D.haversineDistanceMeters(responderLocation.lat, responderLocation.lng, targetLat, targetLng) : 0),
+    [responderLocation, targetLat, targetLng]
+  );
 
-  const buoyDist = useMemo(() => {
-    if (!buoyLocation) return 0;
-    return KalmanFilter2D.haversineDistanceMeters(
-      buoyLocation.lat,
-      buoyLocation.lng,
-      targetLat,
-      targetLng
-    );
-  }, [buoyLocation, targetLat, targetLng]);
+  const droneEta = Math.round(droneDist / RESPONDER_SPEEDS.DRONE);
+  const buoyEta = hydrodynamics?.distanceMatrix?.buoyEtaSec ?? Math.round(buoyDist / RESPONDER_SPEEDS.BUOY);
+  const responderEta = Math.round(responderDist / RESPONDER_SPEEDS.HUMAN_TEAM);
 
-  const responderDist = useMemo(() => {
-    if (!responderLocation) return 0;
-    return KalmanFilter2D.haversineDistanceMeters(
-      responderLocation.lat,
-      responderLocation.lng,
-      targetLat,
-      targetLng
-    );
-  }, [responderLocation, targetLat, targetLng]);
+  const droneHeading = useMemo(() => {
+    if (dronePath.length > 1) {
+      const prev = dronePath[dronePath.length - 2];
+      const current = dronePath[dronePath.length - 1];
+      return calculateBearingDeg(prev, current);
+    }
+    return hydrodynamics?.directHeadingDeg ?? 0;
+  }, [dronePath, hydrodynamics]);
 
-  const droneEtaSec = Math.round(droneDist / RESPONDER_SPEEDS.DRONE);
-  const buoyEtaSec = hydrodynamics?.distanceMatrix?.buoyEtaSec ?? Math.round(buoyDist / RESPONDER_SPEEDS.BUOY);
-  const responderEtaSec = Math.round(responderDist / RESPONDER_SPEEDS.HUMAN_TEAM);
+  const detectionConfidence = clampPct(
+    ((sensorData.screechConfidence || 0.9) * 70) + (Math.min(sensorData.thermalDelta / 7, 1) * 30)
+  );
+  const recognitionConfidence = clampPct(
+    ((sensorData.screechConfidence || 0.9) * 65) + (Math.min(sensorData.thermalDelta / 8, 1) * 35)
+  );
+  const riskConfidence = clampPct(
+    ((sensorData.screechConfidence || 0.9) * 55) + (Math.min(sensorData.waterVelocity / 3, 1) * 45)
+  );
 
-  const formatSec = (s: number) => {
-    if (s <= 0) return '0s';
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return `${m}m ${r}s`;
-  };
+  const timelineEntries = useMemo(() => {
+    if (eventLogs.length === 0) {
+      return [
+        { time: '--:--:--', message: 'DISTRESS DETECTED' },
+        { time: '--:--:--', message: 'GPS LOCATION FILTERED' },
+        { time: '--:--:--', message: 'DRONE TARGET LOCKED' },
+      ];
+    }
+    return eventLogs.slice(0, 12).reverse().map((log) => ({
+      time: log.time,
+      message: log.message.toUpperCase(),
+    }));
+  }, [eventLogs]);
 
-  // ── Mission Timeline Stages ────────────────────────────────────────────────
-  const timelineStages = useMemo(() => {
-    const s1Completed = true; // DISTRESS DETECTED
-    const s2Completed = !!filteredLocation; // LOCATION LOCKED
-    const s3Completed = true; // RESCUE TEAM ALERTED
-    const s4Completed = droneStatus !== 'STANDBY'; // DRONE DISPATCHED
-    const s5Completed = droneStatus === 'TARGET_REACHED'; // LIFE JACKET DELIVERED
-    const s6Completed = buoyStatus !== 'STANDBY'; // BUOY DISPATCHED
-    const s7Completed = droneStatus === 'TARGET_REACHED' || buoyStatus === 'TARGET_REACHED'; // VICTIM REACHED
-    const s8Completed = responderStatus === 'TARGET_REACHED'; // SAFE DESTINATION
+  const bringToFront = useCallback((id: PanelId) => {
+    setPanels((prev) => {
+      const next = cloneLayoutMap(prev);
+      const maxZ = Math.max(...PANEL_ORDER.map((key) => next[key].z));
+      next[id] = { ...next[id], z: maxZ + 1 };
+      return next;
+    });
+  }, []);
 
-    return [
-      {
-        id: 1,
-        title: 'DISTRESS DETECTED',
-        status: s1Completed ? 'COMPLETED' : 'ACTIVE',
-      },
-      {
-        id: 2,
-        title: 'LOCATION LOCKED',
-        status: s2Completed ? 'COMPLETED' : 'ACTIVE',
-      },
-      {
-        id: 3,
-        title: 'TEAM ALERTED',
-        status: s3Completed ? 'COMPLETED' : 'ACTIVE',
-      },
-      {
-        id: 4,
-        title: 'DRONE DISPATCHED',
-        status: s4Completed ? 'COMPLETED' : droneStatus === 'STANDBY' ? 'ACTIVE' : 'PENDING',
-      },
-      {
-        id: 5,
-        title: 'PAYLOAD DELIVERED',
-        status: s5Completed ? 'COMPLETED' : droneStatus === 'EN_ROUTE' ? 'ACTIVE' : 'PENDING',
-      },
-      {
-        id: 6,
-        title: 'BUOY DISPATCHED',
-        status: s6Completed ? 'COMPLETED' : buoyStatus === 'STANDBY' ? 'ACTIVE' : 'PENDING',
-      },
-      {
-        id: 7,
-        title: 'VICTIM REACHED',
-        status: s7Completed ? 'COMPLETED' : (buoyStatus === 'EN_ROUTE' || droneStatus === 'EN_ROUTE') ? 'ACTIVE' : 'PENDING',
-      },
-      {
-        id: 8,
-        title: 'SAFE DESTINATION',
-        status: s8Completed ? 'COMPLETED' : responderStatus === 'EN_ROUTE' ? 'ACTIVE' : 'PENDING',
-      },
-    ];
-  }, [filteredLocation, droneStatus, buoyStatus, responderStatus]);
+  const updatePanel = useCallback((id: PanelId, patch: Partial<PanelLayoutMap[PanelId]>) => {
+    setPanels((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  }, []);
 
-  return (
-    <div className="fixed inset-0 z-[4000] flex flex-col bg-[#090D16] text-[#F3F4F6] font-mono overflow-hidden animate-mission-slide-in emergency-border-pulse">
-      {/* ── 1. ACTIVE MISSION HEADER ───────────────────────────────────────── */}
-      <header className="w-full bg-[#111827]/95 border-b border-[#EF4444]/40 px-4 py-2.5 flex items-center justify-between shadow-2xl shrink-0">
-        <div className="flex items-center space-x-3">
-          {/* Emergency Alert Indicator */}
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-lg bg-[#EF4444]/20 border border-[#EF4444]/60 shadow-[0_0_15px_rgba(239,68,68,0.4)]">
-            <Radio className="w-5 h-5 text-[#EF4444] animate-pulse" />
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#EF4444] opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-[#EF4444]"></span>
-            </span>
+  const applyPreset = useCallback((preset: WorkspacePreset) => {
+    setActivePreset(preset);
+    setEmergencyFocusMode(false);
+    setPanels((prev) => {
+      const baseline = PRESET_LAYOUTS[preset];
+      const next = cloneLayoutMap(prev);
+      for (const id of PANEL_ORDER) {
+        next[id] = {
+          ...baseline[id],
+          z: next[id].z,
+        };
+      }
+      return next;
+    });
+  }, []);
+
+  const applyEmergencyFocus = useCallback((active: boolean) => {
+    setEmergencyFocusMode(active);
+    setPanels((prev) => {
+      const next = cloneLayoutMap(prev);
+      for (const id of PANEL_ORDER) {
+        const critical = CRITICAL_PANEL_IDS.includes(id);
+        if (active) {
+          next[id].visible = critical;
+          next[id].collapsed = !critical;
+        } else {
+          const presetLayouts = PRESET_LAYOUTS[activePreset];
+          next[id].visible = presetLayouts[id].visible;
+          next[id].collapsed = presetLayouts[id].collapsed;
+        }
+      }
+      return next;
+    });
+  }, [activePreset]);
+
+  const handlePanelSnapCommit = useCallback((id: PanelId, target: DockTarget) => {
+    setPanels((prev) => {
+      const next = cloneLayoutMap(prev);
+      const dockLayout = getDockLayout(target);
+      next[id] = { ...next[id], ...dockLayout };
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!missionId) return;
+    setPanels((prev) => {
+      const next = cloneLayoutMap(prev);
+      for (const id of CRITICAL_PANEL_IDS) {
+        next[id].visible = true;
+        next[id].collapsed = false;
+      }
+      return next;
+    });
+    setHighlightedPanel('active-target');
+    const timer = setTimeout(() => setHighlightedPanel(null), 1800);
+    return () => clearTimeout(timer);
+  }, [missionId]);
+
+  const handleOpenNavigation = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}`, '_blank', 'noopener,noreferrer');
+  }, [targetLat, targetLng]);
+
+  const panelContent: Record<PanelId, React.ReactNode> = {
+    'active-target': (
+      <div className="space-y-2 text-xs">
+        <div className="text-lg font-extrabold text-white">{puckId || 'PUCK-ALPHA-04'}</div>
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">STATUS</span><span className="text-[#EF4444] font-bold">CRITICAL DISTRESS</span>
+          <span className="text-gray-400">LAT</span><span className="font-bold">{targetLat.toFixed(6)}</span>
+          <span className="text-gray-400">LNG</span><span className="font-bold">{targetLng.toFixed(6)}</span>
+          <span className="text-gray-400">GPS</span><span className="text-[#10B981] font-bold">FILTERED / STABLE</span>
+          <span className="text-gray-400">LOCK</span><span className="font-bold text-[#10B981]">{isConnected ? 'LIVE TARGET LOCK' : 'SIM TARGET LOCK'}</span>
+        </div>
+      </div>
+    ),
+    'kalman-gps': (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2">
+            <div className="text-gray-400 text-[10px]">FILTERED LAT</div>
+            <div className="text-[#67e8f9] font-bold">{targetLat.toFixed(6)}</div>
           </div>
-
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base font-extrabold tracking-wider text-white uppercase flex items-center gap-2">
-                <span className="text-[#EF4444]">ACTIVE RESCUE MISSION</span>
-                <span className="text-xs font-bold text-gray-400 bg-gray-800/80 border border-gray-700 px-2 py-0.5 rounded">
-                  {missionId || 'MISSION #AR-042'}
-                </span>
-              </h1>
-            </div>
-            <p className="text-[11px] text-gray-400 tracking-tight flex items-center space-x-3 mt-0.5">
-              <span>TARGET: <strong className="text-white">{puckId || 'PUCK-ALPHA-04'}</strong></span>
-              <span>•</span>
-              <span>COORDS: <strong className="text-[#06B6D4]">{targetLat.toFixed(6)}, {targetLng.toFixed(6)}</strong></span>
-            </p>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2">
+            <div className="text-gray-400 text-[10px]">FILTERED LNG</div>
+            <div className="text-[#67e8f9] font-bold">{targetLng.toFixed(6)}</div>
           </div>
         </div>
-
-        {/* Center Live Mission Status Badge & Timer */}
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2 bg-[#EF4444]/15 border border-[#EF4444]/50 px-3 py-1 rounded-lg">
-            <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-ping" />
-            <span className="text-xs font-extrabold text-[#EF4444] tracking-wider">CRITICAL / ACTIVE</span>
-          </div>
-
-          <div className="flex items-center space-x-2 bg-[#090D16] border border-[#1F293D] px-3.5 py-1 rounded-lg shadow-inner">
-            <Clock className="w-4 h-4 text-[#F59E0B] animate-pulse" />
-            <span className="text-sm font-extrabold text-[#F59E0B] tracking-wider font-mono">
-              {elapsedFormatted}
-            </span>
-          </div>
+        <div className="flex justify-between text-[11px]">
+          <span className="text-gray-400">NOISE DELTA</span>
+          <span className="text-[#F59E0B] font-bold">{(filteredLocation as FilteredResult)?.noiseDeltaMeters ?? 0}m</span>
         </div>
-
-        {/* Right Header Actions */}
-        <div className="flex items-center space-x-2">
-          {/* Audio Voice Toggle */}
+      </div>
+    ),
+    'raw-gps': (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">RAW LAT</span><span className="font-bold">{(rawLocation?.lat ?? targetLat).toFixed(6)}</span>
+          <span className="text-gray-400">RAW LNG</span><span className="font-bold">{(rawLocation?.lng ?? targetLng).toFixed(6)}</span>
+          <span className="text-gray-400">MODE</span><span className="text-[#F59E0B] font-bold">MULTIPATH NOISY</span>
+        </div>
+      </div>
+    ),
+    'drone-camera': (
+      <DroneCameraFeed
+        mode={cameraMode}
+        onModeChange={setCameraMode}
+        detectionConfidence={recognitionConfidence}
+        targetLat={targetLat}
+        targetLng={targetLng}
+        altitudeM={Math.max(20, Math.min(95, droneDist * 0.18))}
+        headingDeg={droneHeading}
+        signalDbm={isConnected ? -42 : -67}
+        distanceToTarget={droneDist}
+        droneId="UAV-RESCUE-01"
+        isSimulated={true}
+      />
+    ),
+    'drone-sensors': (
+      <div className="space-y-2.5 text-xs">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">CAMERA</div><div className="font-bold text-[#10B981]">{cameraMode} ACTIVE</div></div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">TARGET</div><div className="font-bold text-[#10B981]">PERSON LOCKED</div></div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">DISTANCE</div><div className="font-bold">{Math.round(droneDist)} m</div></div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">ETA</div><div className="font-bold">{formatEtaClock(droneEta)}</div></div>
+        </div>
+        <div className="border-t border-[#1f293d] pt-2">
+          <div className="text-[#67e8f9] font-bold mb-1">LIFE JACKET PAYLOAD</div>
+          <div className="grid grid-cols-2 gap-y-1">
+            <span className="text-gray-400">STATUS</span><span className="text-[#10B981] font-bold">READY</span>
+            <span className="text-gray-400">TARGET LOCK</span><span className="text-[#10B981] font-bold">✓</span>
+            <span className="text-gray-400">DROP ZONE</span><span className="text-[#10B981] font-bold">LOCKED</span>
+          </div>
           <button
-            onClick={onToggleAudio}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all border ${
-              audioVoiceEnabled
-                ? 'bg-[#06B6D4]/15 border-[#06B6D4]/40 text-[#06B6D4]'
-                : 'bg-gray-800/60 border-gray-700 text-gray-400'
-            }`}
+            onClick={onManualPayloadDrop}
+            className="mt-2 w-full py-1.5 rounded border border-[#06b6d4]/60 bg-[#06b6d4]/15 text-[#67e8f9] font-bold"
           >
-            {audioVoiceEnabled ? <Volume2 className="w-3.5 h-3.5 animate-pulse" /> : <VolumeX className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{audioVoiceEnabled ? 'VOICE ON' : 'VOICE MUTED'}</span>
-          </button>
-
-          {/* Resolve Incident Button */}
-          <button
-            onClick={onResolveIncident}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded bg-[#10B981] hover:bg-[#10B981]/90 text-black font-extrabold text-xs transition-all shadow-lg border border-[#10B981]"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>RESOLVE INCIDENT</span>
+            RELEASE PAYLOAD (SIMULATED COMMAND)
           </button>
         </div>
-      </header>
-
-      {/* ── MAIN EMERGENCY COMMAND CONTENT ───────────────────────────────────── */}
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row w-full overflow-hidden">
-        {/* ── 2. MAP BECOMES PRIMARY VIEW (70% WIDTH) ───────────────────────── */}
-        <div className="w-full lg:w-[70%] h-[55vh] lg:h-full relative border-r border-[#1F293D]">
-          <LeafletMapView
-            filteredTarget={filteredLocation}
-            rawTarget={rawLocation}
-            droneLocation={droneLocation}
-            buoyLocation={buoyLocation}
-            responderLocation={responderLocation}
-            dronePath={dronePath}
-            buoyPath={buoyPath}
-            responderPath={responderPath}
-            hydrodynamics={hydrodynamics}
-            activeDistress={true}
-            puckId={puckId}
-            predictionWindow={predictionWindow}
-            setPredictionWindow={setPredictionWindow}
-            sensorData={sensorData}
-            droneStatus={droneStatus}
-            buoyStatus={buoyStatus}
-            responderStatus={responderStatus}
-          />
-
-          {/* Map Overlay Badge */}
-          <div className="absolute top-4 right-4 z-[1000] bg-[#090D16]/90 backdrop-blur border border-[#EF4444]/50 rounded-lg p-2 flex items-center space-x-2 text-xs font-mono shadow-2xl pointer-events-auto">
-            <span className="w-2 h-2 rounded-full bg-[#EF4444] animate-ping" />
-            <span className="text-white font-bold">TACTICAL MISSION VIEW</span>
+      </div>
+    ),
+    'rescue-team': (
+      <div className="space-y-2 text-xs">
+        <div className="text-white font-bold">RESCUE TEAM-01</div>
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">GPS</span><span className="font-bold">{(responderLocation?.lat ?? 17.384721).toFixed(6)}, {(responderLocation?.lng ?? 78.485932).toFixed(6)}</span>
+          <span className="text-gray-400">DISTANCE</span><span className="font-bold">{Math.round(responderDist)} m</span>
+          <span className="text-gray-400">ETA</span><span className="font-bold">{formatEtaClock(responderEta)}</span>
+          <span className="text-gray-400">STATUS</span><span className="text-[#10B981] font-bold">{responderStatus === 'STANDBY' ? 'EN ROUTE' : responderStatus}</span>
+          <span className="text-gray-400">BEARING</span><span className="font-bold">{responderLocation ? Math.round(calculateBearingDeg(responderLocation, { lat: targetLat, lng: targetLng })) : 0}°</span>
+        </div>
+        <button
+          onClick={handleOpenNavigation}
+          className="w-full py-1.5 rounded border border-[#a78bfa]/60 bg-[#a78bfa]/15 text-[#c4b5fd] font-bold flex items-center justify-center gap-1.5"
+        >
+          <Navigation className="w-3.5 h-3.5" />
+          OPEN NAVIGATION
+        </button>
+      </div>
+    ),
+    'audio-analysis': (
+      <div className="space-y-2 text-xs">
+        <div>
+          <div className="flex justify-between mb-1">
+            <span className="text-gray-400">ACOUSTIC DISTRESS CONF.</span>
+            <span className="text-[#EF4444] font-bold">{Math.round(sensorData.screechConfidence * 100)}%</span>
+          </div>
+          <div className="w-full h-2 bg-gray-800 rounded overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444]" style={{ width: `${Math.round(sensorData.screechConfidence * 100)}%` }} />
           </div>
         </div>
-
-        {/* ── 3 RESPONSE UNIT COMMAND CARDS + AI BRIEFING (30% WIDTH) ───────── */}
-        <div className="w-full lg:w-[30%] h-[45vh] lg:h-full bg-[#111827] flex flex-col overflow-y-auto border-l border-[#1F293D] p-3 space-y-3 shadow-2xl">
-          <div className="text-xs font-bold text-gray-300 uppercase tracking-wider border-b border-[#1F293D] pb-1.5 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <Cpu className="w-4 h-4 text-[#06B6D4]" />
-              RESPONSE UNIT COMMAND CARDS
-            </span>
-            <span className="text-[10px] text-[#06B6D4] font-semibold">3 UNITS</span>
-          </div>
-
-          {/* ── CARD 1: UAV DRONE ───────────────────────────────────────────── */}
-          <div className="bg-[#090D16] p-3 rounded-lg border border-[#06B6D4]/40 space-y-2 relative overflow-hidden shadow-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-2.5 h-2.5 bg-[#06B6D4] rotate-45" />
-                <span className="text-xs font-extrabold text-white">UAV DRONE (RESCUE-01)</span>
-              </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                droneStatus === 'TARGET_REACHED' ? 'bg-[#10B981]/20 border-[#10B981] text-[#10B981]' :
-                droneStatus === 'EN_ROUTE' || droneStatus === 'DISPATCHED' ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4] animate-pulse' :
-                'bg-gray-800 border-gray-700 text-gray-400'
-              }`}>
-                {droneStatus}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">DISTANCE</span>
-                <span className="text-white font-bold text-xs">{droneDist.toFixed(0)}m</span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">EST. ETA</span>
-                <span className="text-[#06B6D4] font-bold text-xs">
-                  {droneStatus === 'TARGET_REACHED' ? 'REACHED' : formatSec(droneEtaSec)}
-                </span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">GIMBAL</span>
-                <span className="text-[#10B981] font-bold">LOCKED (98%)</span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">PAYLOAD</span>
-                <span className="text-[#10B981] font-bold">READY (FLOAT)</span>
-              </div>
-            </div>
-
-            <div className="flex space-x-2 pt-1">
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">THERMAL DELTA</span><span className="text-[#F59E0B] font-bold">+{sensorData.thermalDelta.toFixed(1)}°C</span>
+          <span className="text-gray-400">DETECTION</span><span className="font-bold">{detectionConfidence}%</span>
+          <span className="text-gray-400">RECOGNITION</span><span className="font-bold">{recognitionConfidence}%</span>
+          <span className="text-gray-400">RISK</span><span className="text-[#EF4444] font-bold">{riskConfidence}%</span>
+        </div>
+      </div>
+    ),
+    hydrodynamics: (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">CURRENT</span><span className="font-bold">{sensorData.waterVelocity.toFixed(1)} m/s</span>
+          <span className="text-gray-400">DRIFT HEADING</span><span className="font-bold">{sensorData.driftHeading}°</span>
+          <span className="text-gray-400">COMP HEADING</span><span className="text-[#10B981] font-bold">{hydrodynamics?.compensatedHeadingDeg ?? sensorData.driftHeading}°</span>
+          <span className="text-gray-400">BUOY ETA</span><span className="font-bold">{formatEtaClock(buoyEta)}</span>
+          <span className="text-gray-400">BUOY DIST</span><span className="font-bold">{Math.round(buoyDist)} m</span>
+        </div>
+        <div className="flex items-center justify-between pt-1 border-t border-[#1f293d]">
+          <span className="text-gray-400">PREDICTION WINDOW</span>
+          <div className="flex gap-1">
+            {([15, 30, 45, 60] as const).map((sec) => (
               <button
-                onClick={onManualPayloadDrop}
-                className="flex-1 py-1.5 bg-[#06B6D4]/20 hover:bg-[#06B6D4]/30 border border-[#06B6D4]/50 text-[#06B6D4] text-[11px] font-bold rounded transition-all flex items-center justify-center gap-1"
+                key={sec}
+                onClick={() => setPredictionWindow(sec)}
+                className={`px-2 py-0.5 rounded border text-[10px] font-bold ${predictionWindow === sec ? 'border-[#06b6d4] text-[#67e8f9] bg-[#06b6d4]/15' : 'border-[#374151] text-gray-300'}`}
               >
-                <Zap className="w-3 h-3" />
-                PAYLOAD AIR-DROP
+                {sec}s
               </button>
-            </div>
-          </div>
-
-          {/* ── CARD 2: AUTONOMOUS RESCUE BUOY ─────────────────────────────── */}
-          <div className="bg-[#090D16] p-3 rounded-lg border border-[#F59E0B]/40 space-y-2 relative overflow-hidden shadow-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-2.5 h-2.5 bg-[#F59E0B] rounded-full" />
-                <span className="text-xs font-extrabold text-white">AUTONOMOUS BUOY (HYDRO-02)</span>
-              </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                buoyStatus === 'TARGET_REACHED' ? 'bg-[#10B981]/20 border-[#10B981] text-[#10B981]' :
-                buoyStatus === 'EN_ROUTE' || buoyStatus === 'DISPATCHED' ? 'bg-[#F59E0B]/20 border-[#F59E0B] text-[#F59E0B] animate-pulse' :
-                'bg-gray-800 border-gray-700 text-gray-400'
-              }`}>
-                {buoyStatus}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">DISTANCE</span>
-                <span className="text-white font-bold text-xs">{buoyDist.toFixed(0)}m</span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">EST. ETA</span>
-                <span className="text-[#F59E0B] font-bold text-xs">
-                  {buoyStatus === 'TARGET_REACHED' ? 'REACHED' : formatSec(buoyEtaSec)}
-                </span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">WATER CURRENT</span>
-                <span className="text-[#06B6D4] font-bold">{sensorData.waterVelocity} m/s</span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">DRIFT VECTOR</span>
-                <span className="text-[#F59E0B] font-bold">{hydrodynamics ? `${hydrodynamics.compensatedHeadingDeg}°` : `${sensorData.driftHeading}°`}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ── CARD 3: HUMAN RESCUE TEAM ────────────────────────────────────── */}
-          <div className="bg-[#090D16] p-3 rounded-lg border border-[#A78BFA]/40 space-y-2 relative overflow-hidden shadow-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[8px] border-l-transparent border-r-transparent border-b-[#A78BFA]" />
-                <span className="text-xs font-extrabold text-white">RESCUE TEAM (GROUND-01)</span>
-              </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                responderStatus === 'TARGET_REACHED' ? 'bg-[#10B981]/20 border-[#10B981] text-[#10B981]' :
-                responderStatus === 'EN_ROUTE' || responderStatus === 'DISPATCHED' ? 'bg-[#A78BFA]/20 border-[#A78BFA] text-[#A78BFA] animate-pulse' :
-                'bg-gray-800 border-gray-700 text-gray-400'
-              }`}>
-                {responderStatus}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">DISTANCE</span>
-                <span className="text-white font-bold text-xs">{responderDist.toFixed(0)}m</span>
-              </div>
-              <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
-                <span className="text-gray-500 block">EST. ETA</span>
-                <span className="text-[#A78BFA] font-bold text-xs">
-                  {responderStatus === 'TARGET_REACHED' ? 'REACHED' : formatSec(responderEtaSec)}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex space-x-2 pt-1">
-              <button
-                onClick={onOverrideDispatch}
-                className="flex-1 py-1.5 bg-[#A78BFA]/20 hover:bg-[#A78BFA]/30 border border-[#A78BFA]/50 text-[#A78BFA] text-[11px] font-bold rounded transition-all flex items-center justify-center gap-1"
-              >
-                <Send className="w-3 h-3" />
-                OVERRIDE TEAM DISPATCH
-              </button>
-            </div>
-          </div>
-
-          {/* DUAL DISPATCH MASTER BUTTON */}
-          <button
-            onClick={onExecuteRescue}
-            className="w-full py-2.5 bg-gradient-to-r from-[#06B6D4] to-[#10B981] hover:from-[#06B6D4]/90 hover:to-[#10B981]/90 text-black font-extrabold text-xs rounded-lg transition-all shadow-xl flex items-center justify-center gap-2 border border-[#10B981]"
-          >
-            <Send className="w-4 h-4" />
-            EXECUTE DUAL RESCUE DISPATCH
-          </button>
-
-          {/* Gemini AI Briefing in Panel */}
-          <div className="pt-1">
-            <AIBriefing briefing={aiBriefing} audioVoiceEnabled={audioVoiceEnabled} />
+            ))}
           </div>
         </div>
       </div>
+    ),
+    'ai-briefing': <AIBriefing briefing={aiBriefing} audioVoiceEnabled={audioVoiceEnabled} />,
+    'incident-timeline': (
+      <div className="space-y-1.5 text-xs">
+        {timelineEntries.map((entry, idx) => (
+          <div key={`${entry.time}-${idx}`} className="flex gap-2">
+            <span className="w-[68px] shrink-0 text-[#67e8f9] font-bold">{entry.time}</span>
+            <span className="text-gray-200">{entry.message}</span>
+          </div>
+        ))}
+      </div>
+    ),
+    'mission-controls': (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">DRONE</span><span className="font-bold text-[#67e8f9]">{droneStatus}</span>
+          <span className="text-gray-400">BUOY</span><span className="font-bold text-[#fbbf24]">{buoyStatus}</span>
+          <span className="text-gray-400">TEAM</span><span className="font-bold text-[#c4b5fd]">{responderStatus}</span>
+          <span className="text-gray-400">RESPONSE TIMER</span><span className="font-bold text-[#F59E0B]">{elapsed}</span>
+        </div>
+        <button
+          onClick={onExecuteRescue}
+          className="w-full py-2 rounded bg-gradient-to-r from-[#ef4444] to-[#f59e0b] text-white font-extrabold"
+        >
+          EXECUTE DUAL DISPATCH
+        </button>
+        <button
+          onClick={onOverrideDispatch}
+          className="w-full py-1.5 rounded border border-[#a78bfa]/60 bg-[#a78bfa]/15 text-[#c4b5fd] font-bold"
+        >
+          OVERRIDE TEAM DISPATCH
+        </button>
+        <button
+          onClick={onResolveIncident}
+          className="w-full py-1.5 rounded border border-[#10b981]/70 bg-[#10b981]/15 text-[#6ee7b7] font-bold"
+        >
+          RESOLVE INCIDENT
+        </button>
+      </div>
+    ),
+  };
 
-      {/* ── 3. LIVE RESCUE MISSION TIMELINE (HORIZONTAL STRIP AT BOTTOM) ────── */}
-      <footer className="w-full bg-[#111827] border-t border-[#1F293D] px-4 py-2 flex items-center overflow-x-auto shrink-0 select-none shadow-2xl">
-        <div className="flex items-center space-x-1.5 pr-4 border-r border-[#1F293D] shrink-0 text-xs font-bold text-gray-300">
-          <Layers className="w-4 h-4 text-[#06B6D4]" />
-          <span>MISSION TIMELINE</span>
+  const dockPreviewLayout = dockPreview ? getDockLayout(dockPreview) : null;
+
+  return (
+    <div className="fixed inset-0 z-[4000] bg-[#090D16] text-[#F3F4F6] font-mono flex flex-col overflow-hidden emergency-border-pulse">
+      <header className="px-4 py-2.5 border-b border-[#ef4444]/40 bg-[#111827]/95 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg border border-[#ef4444]/70 bg-[#ef4444]/20 flex items-center justify-center relative">
+            <ShieldAlert className="w-5 h-5 text-[#ef4444]" />
+            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#ef4444] animate-ping" />
+          </div>
+          <div>
+            <h1 className="text-sm font-extrabold tracking-wider text-[#ef4444]">ACTIVE DISTRESS RESPONSE</h1>
+            <p className="text-[11px] text-gray-300">MISSION {missionId || 'AR-000'} · TARGET {puckId || 'PUCK-ALPHA-04'} · {elapsed}</p>
+          </div>
         </div>
 
-        <div className="flex-1 flex items-center justify-between min-w-[750px] px-4 py-1">
-          {timelineStages.map((stage, idx) => (
-            <React.Fragment key={stage.id}>
-              {/* Stage Node */}
-              <div className="flex flex-col items-center space-y-1 relative">
-                <div
-                  className={`w-5 h-5 rounded-full flex items-center justify-center border text-[9px] font-extrabold transition-all ${
-                    stage.status === 'COMPLETED'
-                      ? 'bg-[#10B981] border-[#10B981] text-black'
-                      : stage.status === 'ACTIVE'
-                      ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4] animate-ping-slow'
-                      : 'bg-gray-800 border-gray-700 text-gray-500'
-                  }`}
-                >
-                  {stage.status === 'COMPLETED' ? '✓' : stage.id}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleAudio}
+            className="px-2.5 py-1.5 rounded border border-[#374151] bg-[#0b1420] text-gray-200 text-xs font-bold flex items-center gap-1"
+          >
+            {audioVoiceEnabled ? <Volume2 className="w-3.5 h-3.5 text-[#67e8f9]" /> : <VolumeX className="w-3.5 h-3.5 text-gray-400" />}
+            {audioVoiceEnabled ? 'VOICE ON' : 'VOICE MUTED'}
+          </button>
+          <button
+            onClick={() => applyEmergencyFocus(!emergencyFocusMode)}
+            className={`px-3 py-1.5 rounded border text-xs font-bold ${
+              emergencyFocusMode
+                ? 'border-[#ef4444] bg-[#ef4444]/20 text-[#fecaca]'
+                : 'border-[#374151] bg-[#0b1420] text-gray-200'
+            }`}
+          >
+            EMERGENCY FOCUS
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setWorkspaceMenuOpen((prev) => !prev)}
+              className="px-3 py-1.5 rounded border border-[#06b6d4]/50 bg-[#06b6d4]/10 text-[#67e8f9] text-xs font-bold flex items-center gap-1.5"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              WORKSPACE
+            </button>
+            {workspaceMenuOpen && (
+              <div className="absolute right-0 top-10 w-72 bg-[#0b1420] border border-[#1f293d] rounded-lg p-3 z-[6000] shadow-2xl">
+                <div className="text-[11px] font-bold text-gray-300 border-b border-[#1f293d] pb-1 mb-2">LAYOUT</div>
+                <div className="space-y-1.5 text-xs">
+                  {([
+                    ['COMMAND', 'Command View'],
+                    ['RESCUE', 'Rescue View'],
+                    ['DRONE', 'Drone View'],
+                    ['FULL_TACTICAL', 'Full Tactical View'],
+                  ] as [WorkspacePreset, string][]).map(([value, label]) => (
+                    <label key={value} className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={activePreset === value} onChange={() => applyPreset(value)} />
+                      <span>{label}</span>
+                    </label>
+                  ))}
                 </div>
-                <span
-                  className={`text-[9px] font-bold tracking-tight text-center whitespace-nowrap ${
-                    stage.status === 'COMPLETED'
-                      ? 'text-[#10B981]'
-                      : stage.status === 'ACTIVE'
-                      ? 'text-[#06B6D4]'
-                      : 'text-gray-500'
-                  }`}
-                >
-                  {stage.title}
-                </span>
-              </div>
 
-              {/* Connecting Line between nodes */}
-              {idx < timelineStages.length - 1 && (
-                <div
-                  className={`flex-1 h-0.5 mx-2 rounded transition-all ${
-                    stage.status === 'COMPLETED' ? 'bg-[#10B981]' : 'bg-gray-800'
-                  }`}
-                />
-              )}
-            </React.Fragment>
+                <div className="text-[11px] font-bold text-gray-300 border-b border-[#1f293d] pb-1 mb-2 mt-3">PANEL CONTROL</div>
+                <div className="space-y-1 text-xs">
+                  {panelControlList.map(({ id, label }) => (
+                    <label key={id} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={panels[id].visible}
+                        onChange={() => updatePanel(id, { visible: !panels[id].visible })}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main ref={workspaceRef} className="relative flex-1 min-h-0">
+        <LeafletMapView
+          filteredTarget={filteredLocation}
+          rawTarget={rawLocation}
+          droneLocation={droneLocation}
+          buoyLocation={buoyLocation}
+          responderLocation={responderLocation}
+          dronePath={dronePath}
+          buoyPath={buoyPath}
+          responderPath={responderPath}
+          hydrodynamics={hydrodynamics}
+          activeDistress={true}
+          puckId={puckId}
+          predictionWindow={predictionWindow}
+          setPredictionWindow={setPredictionWindow}
+          sensorData={sensorData}
+          droneStatus={droneStatus}
+          buoyStatus={buoyStatus}
+          responderStatus={responderStatus}
+        />
+
+        {dockPreviewLayout && (
+          <div
+            className="absolute border-2 border-dashed border-[#06B6D4]/70 bg-[#06B6D4]/10 rounded-lg pointer-events-none z-[5500]"
+            style={{
+              left: `${dockPreviewLayout.x * workspaceSize.width}px`,
+              top: `${dockPreviewLayout.y * workspaceSize.height}px`,
+              width: `${dockPreviewLayout.w * workspaceSize.width}px`,
+              height: `${dockPreviewLayout.h * workspaceSize.height}px`,
+            }}
+          />
+        )}
+
+        <div className="absolute left-2 top-1/2 -translate-y-1/2 z-[5600] bg-[#111827]/90 border border-[#1f293d] rounded-lg p-1.5 flex flex-col gap-1.5">
+          {([
+            ['drone-camera', '🚁 Drone Camera'],
+            ['active-target', '📍 Target Location'],
+            ['rescue-team', '👥 Rescue Team'],
+            ['ai-briefing', '🧠 AI Briefing'],
+            ['audio-analysis', '🔊 Audio Analysis'],
+            ['hydrodynamics', '🌊 Hydrodynamics'],
+          ] as [PanelId, string][]).map(([id, title]) => (
+            <button
+              key={id}
+              title={title}
+              onClick={() => updatePanel(id, { visible: !panels[id].visible, collapsed: false })}
+              className={`w-8 h-8 rounded border text-xs font-bold ${
+                panels[id].visible ? 'border-[#06b6d4]/70 bg-[#06b6d4]/15 text-[#67e8f9]' : 'border-[#374151] bg-[#0b1420] text-gray-300'
+              }`}
+            >
+              {title.split(' ')[0]}
+            </button>
           ))}
         </div>
+
+        {PANEL_ORDER.map((id) => {
+          const isHighlighted = highlightedPanel === id;
+          return (
+            <div key={id} className={isHighlighted ? 'animate-pulse' : undefined}>
+              <WorkspacePanel
+                title={panelTitleMap[id]}
+                icon={panelIconMap[id]}
+                layout={panels[id]}
+                workspaceWidth={workspaceSize.width}
+                workspaceHeight={workspaceSize.height}
+                onLayoutChange={(patch) => updatePanel(id, patch)}
+                onBringToFront={() => bringToFront(id)}
+                onSnapPreview={setDockPreview}
+                onSnapCommit={(target) => handlePanelSnapCommit(id, target)}
+              >
+                {panelContent[id]}
+              </WorkspacePanel>
+            </div>
+          );
+        })}
+      </main>
+
+      <footer className="px-4 py-1.5 border-t border-[#1f293d] bg-[#111827]/95 text-[10px] text-gray-300 flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0">
+        <span className="font-bold text-[#ef4444] flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> PRIORITY: DISTRESS / VICTIM LOCATION / DRONE / TEAM</span>
+        <span className="flex items-center gap-1"><LocateFixed className="w-3 h-3 text-[#06b6d4]" /> {targetLat.toFixed(6)}, {targetLng.toFixed(6)}</span>
+        <span className="flex items-center gap-1"><Navigation className="w-3 h-3 text-[#06b6d4]" /> DRONE {Math.round(droneDist)}m · BUOY {Math.round(buoyDist)}m · TEAM {Math.round(responderDist)}m</span>
+        <span className="flex items-center gap-1"><LifeBuoy className="w-3 h-3 text-[#10b981]" /> SINGLE INCIDENT COORDINATION</span>
+        {!isConnected && <span className="text-[#f59e0b] flex items-center gap-1"><Radio className="w-3 h-3" /> SIMULATED TELEMETRY MODE</span>}
       </footer>
     </div>
   );

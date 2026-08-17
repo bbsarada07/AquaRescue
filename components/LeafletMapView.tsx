@@ -4,7 +4,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMap, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { Compass, Locate, Sun, Flame } from 'lucide-react';
-import { FilteredResult, GPSCoordinate } from '@/lib/kalman';
+import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
 import { HydrodynamicVectorResult, calculatePredictiveDriftZone, offsetCoordinate } from '@/lib/hydrodynamics';
 
 export interface LeafletMapViewProps {
@@ -35,12 +35,19 @@ export interface LeafletMapViewProps {
 // Sub-component to dynamically fly/pan map camera when target updates
 function MapFlyTo({ center }: { center: [number, number] }) {
   const map = useMap();
+  const prevRef = React.useRef<[number, number] | null>(null);
   useEffect(() => {
-    if (center && center[0] !== 0 && center[1] !== 0) {
-      map.flyTo(center, map.getZoom(), {
-        animate: true,
-        duration: 0.8,
-      });
+    if (!center || center[0] === 0 || center[1] === 0) return;
+    const prev = prevRef.current;
+    if (!prev) {
+      map.flyTo(center, Math.max(map.getZoom(), 17), { animate: true, duration: 0.9 });
+      prevRef.current = center;
+      return;
+    }
+    const dist = KalmanFilter2D.haversineDistanceMeters(prev[0], prev[1], center[0], center[1]);
+    if (dist >= 4) {
+      map.flyTo(center, map.getZoom(), { animate: true, duration: 0.7 });
+      prevRef.current = center;
     }
   }, [center, map]);
   return null;
@@ -237,6 +244,16 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
 
   const noiseDelta = (filteredTarget as FilteredResult)?.noiseDeltaMeters ?? 0;
 
+  const droneToTargetLine: [number, number][] = useMemo(
+    () => [[droneLat, droneLng], [targetLat, targetLng]],
+    [droneLat, droneLng, targetLat, targetLng]
+  );
+
+  const buoyToTargetLine: [number, number][] = useMemo(
+    () => [[buoyLat, buoyLng], [targetLat, targetLng]],
+    [buoyLat, buoyLng, targetLat, targetLng]
+  );
+
   return (
     <div className="relative w-full h-full bg-[#090D16] overflow-hidden select-none border-r border-[#1F293D] z-0">
       {/* 100% Free, Cardless Leaflet Map Container */}
@@ -264,11 +281,23 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
             pathOptions={{ color: '#06B6D4', weight: 3, opacity: 0.85, dashArray: '6, 6' }}
           />
         )}
+        {activeDistress && (
+          <Polyline
+            positions={droneToTargetLine}
+            pathOptions={{ color: '#38BDF8', weight: 2.2, opacity: 0.75, className: 'route-air-line' }}
+          />
+        )}
 
         {buoyPolyline.length > 1 && (
           <Polyline
             positions={buoyPolyline}
             pathOptions={{ color: '#F59E0B', weight: 3, opacity: 0.85 }}
+          />
+        )}
+        {activeDistress && (
+          <Polyline
+            positions={buoyToTargetLine}
+            pathOptions={{ color: '#F59E0B', weight: 2.4, opacity: 0.85, className: 'route-water-line' }}
           />
         )}
 
@@ -351,7 +380,7 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
         {responderToTargetLine.length > 0 && (
           <Polyline
             positions={responderToTargetLine}
-            pathOptions={{ color: '#A78BFA', weight: 1.5, opacity: 0.55, dashArray: '3, 6' }}
+            pathOptions={{ color: '#A78BFA', weight: 1.8, opacity: 0.75, className: 'route-team-line' }}
           />
         )}
 

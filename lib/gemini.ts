@@ -50,7 +50,7 @@ Do NOT use markdown, lists, or extra commentary. Just the 2 tactical sentences.
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-2.0-flash',
         contents: promptText,
       });
 

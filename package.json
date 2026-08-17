@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "description": "AquaRescue Laptop 2 Command & Intelligence Dashboard",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node dev.js",
     "build": "next build",
     "start": "next start",
     "server": "node server.js"
