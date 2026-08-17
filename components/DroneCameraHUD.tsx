@@ -15,11 +15,17 @@ import {
   Radio,
   Video
 } from 'lucide-react';
+import { runMLTargetAnalysis, TargetDetectionResult } from '@/lib/mlEngine';
+import { GPSCoordinate } from '@/lib/kalman';
 
 export interface DroneCameraHUDProps {
   puckId: string | null;
   activeDistress: boolean;
   droneStatus?: string;
+  droneLocation?: GPSCoordinate | null;
+  thermalDelta?: number;
+  screechConfidence?: number;
+  elapsedSeconds?: number;
   onManualPayloadDrop: () => void;
 }
 
@@ -29,6 +35,10 @@ export const DroneCameraHUD: React.FC<DroneCameraHUDProps> = ({
   puckId,
   activeDistress,
   droneStatus = 'STANDBY',
+  droneLocation = null,
+  thermalDelta = 5.2,
+  screechConfidence = 0.96,
+  elapsedSeconds = 24,
   onManualPayloadDrop,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('RGB');
@@ -46,6 +56,18 @@ export const DroneCameraHUD: React.FC<DroneCameraHUDProps> = ({
     }, 1500);
     return () => clearInterval(interval);
   }, []);
+
+  // Run ML DRI Target Analysis Engine
+  const driResult: TargetDetectionResult = runMLTargetAnalysis({
+    droneLocation: droneLocation || { lat: 17.387544, lng: 78.489171 },
+    altitudeMeters: altitude,
+    gimbalPitchDeg: 45,
+    headingDeg: heading,
+    thermalDeltaC: thermalDelta,
+    screechConfidence,
+    elapsedSeconds,
+    activeDistress,
+  }, puckId || 'PUCK-ALPHA-04');
 
   const handlePayloadDeploy = () => {
     if (isDeploying || deploySuccess) return;
@@ -136,11 +158,12 @@ export const DroneCameraHUD: React.FC<DroneCameraHUDProps> = ({
         {activeDistress && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-24 border-2 border-dashed border-[#EF4444] rounded bg-[#EF4444]/10 pointer-events-none z-20 flex flex-col justify-between p-1 animate-pulse">
             <div className="flex justify-between items-center text-[8px] bg-[#EF4444] text-white px-1 py-0.5 font-bold rounded-sm">
-              <span>TARGET LOCKED</span>
-              <span>98.4%</span>
+              <span>LOCK: {driResult.targetId}</span>
+              <span>{(driResult.confidenceScore * 100).toFixed(1)}%</span>
             </div>
-            <div className="text-[8px] font-extrabold text-white bg-black/70 px-1 py-0.5 rounded text-center tracking-tight">
-              HUMAN IN DISTRESS
+            <div className="text-[8px] font-extrabold text-white bg-black/80 px-1 py-0.5 rounded text-center tracking-tight flex justify-between">
+              <span>{driResult.detectionType}</span>
+              <span className="text-[#00FF88] font-bold">STAGE: {driResult.driStage}</span>
             </div>
           </div>
         )}
@@ -148,20 +171,20 @@ export const DroneCameraHUD: React.FC<DroneCameraHUDProps> = ({
         {/* Corner HUD Telemetry Overlays */}
         <div className="absolute top-2 left-2 z-20 text-[9px] font-mono space-y-0.5 bg-black/60 px-2 py-1 rounded border border-white/10">
           <div className="text-gray-300">PITCH: +0.4° | ROLL: -0.1°</div>
-          <div className="text-[#06B6D4]">GIMBAL: LOCK ACTIVE</div>
+          <div className="text-[#06B6D4]">GEOREF DIST: {driResult.georeferenceDistanceMeters.toFixed(1)}m</div>
         </div>
 
         <div className="absolute top-2 right-2 z-20 text-[9px] font-mono space-y-0.5 bg-black/60 px-2 py-1 rounded border border-white/10 text-right">
           <div className="text-gray-300">MODE: {viewMode}</div>
           <div className={activeDistress ? 'text-[#EF4444] font-bold animate-pulse' : 'text-[#10B981]'}>
-            {activeDistress ? 'TRACKING TARGET' : 'SCANNING CORRIDOR'}
+            {activeDistress ? `DRI: ${driResult.driStage}` : 'SCANNING CORRIDOR'}
           </div>
         </div>
 
         {/* Bottom Feed Status Banner */}
         <div className="absolute bottom-2 left-2 right-2 z-20 flex items-center justify-between text-[9px] font-mono bg-black/75 px-2.5 py-1 rounded border border-white/10">
           <span className="text-gray-300">PUCK: <strong className="text-white">{puckId || 'PUCK-ALPHA-04'}</strong></span>
-          <span className="text-gray-400">FPS: <strong className="text-white">60.0</strong></span>
+          <span className="text-gray-400">GPS: <strong className="text-[#00FF88]">{driResult.computedGPS.lat.toFixed(6)}, {driResult.computedGPS.lng.toFixed(6)}</strong></span>
         </div>
       </div>
 
@@ -170,16 +193,27 @@ export const DroneCameraHUD: React.FC<DroneCameraHUDProps> = ({
         <div className="flex items-center space-x-2">
           <ShieldCheck className={`w-4 h-4 ${activeDistress ? 'text-[#EF4444] animate-pulse' : 'text-[#10B981]'}`} />
           <div>
-            <div className="text-gray-400 font-bold uppercase">DRI TARGET ANALYSIS</div>
-            <div className="text-white font-extrabold text-xs">
-              {activeDistress ? 'TARGET LOCKED: HUMAN IN DISTRESS - 98.4% CONFIDENCE' : 'NOMINAL - NO DISTRESS PATTERN'}
+            <div className="text-gray-400 font-bold uppercase">DRI TARGET ANALYSIS SYSTEM</div>
+            <div className="text-white font-extrabold text-xs flex items-center gap-2">
+              <span>{activeDistress ? `TARGET LOCKED: ${driResult.detectionType} — ${(driResult.confidenceScore * 100).toFixed(1)}%` : 'NOMINAL — NO DISTRESS PATTERN'}</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-extrabold ${
+                driResult.distressSeverityIndex === 'CRITICAL' ? 'bg-[#FF3366]/20 border border-[#FF3366] text-[#FF3366]' : 'bg-[#FFB000]/20 border border-[#FFB000] text-[#FFB000]'
+              }`}>
+                {driResult.distressSeverityIndex}
+              </span>
             </div>
           </div>
         </div>
         <div className="flex space-x-1.5 font-mono text-[9px]">
-          <span className="bg-[#10B981]/20 border border-[#10B981]/50 text-[#10B981] px-1.5 py-0.5 rounded">DET: YES</span>
-          <span className="bg-[#06B6D4]/20 border border-[#06B6D4]/50 text-[#06B6D4] px-1.5 py-0.5 rounded">REC: HUMAN</span>
-          <span className="bg-[#F59E0B]/20 border border-[#F59E0B]/50 text-[#F59E0B] px-1.5 py-0.5 rounded">ID: DISTRESS</span>
+          <span className={`px-1.5 py-0.5 rounded font-bold border ${
+            driResult.driStage === 'DETECTION' ? 'bg-[#00FF88]/20 border-[#00FF88] text-[#00FF88] animate-pulse' : 'bg-gray-800 text-gray-400 border-gray-700'
+          }`}>DETECTION</span>
+          <span className={`px-1.5 py-0.5 rounded font-bold border ${
+            driResult.driStage === 'RECOGNITION' ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4] animate-pulse' : 'bg-gray-800 text-gray-400 border-gray-700'
+          }`}>RECOGNITION</span>
+          <span className={`px-1.5 py-0.5 rounded font-bold border ${
+            driResult.driStage === 'IDENTIFICATION' ? 'bg-[#FFB000]/20 border-[#FFB000] text-[#FFB000] animate-pulse' : 'bg-gray-800 text-gray-400 border-gray-700'
+          }`}>IDENTIFICATION</span>
         </div>
       </div>
 

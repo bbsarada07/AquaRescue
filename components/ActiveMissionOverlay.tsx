@@ -28,6 +28,7 @@ import { BriefingResponse } from '@/lib/gemini';
 import { LogEntry } from '@/lib/socket';
 import AIBriefing from './AIBriefing';
 import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
+import DispatchMatrixPanel from './DispatchMatrixPanel';
 import WorkspacePanel from './WorkspacePanel';
 import {
   CRITICAL_PANEL_IDS,
@@ -556,24 +557,21 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
     ),
     'mission-controls': (
       <div className="space-y-2 text-xs">
-        <div className="grid grid-cols-2 gap-y-1.5">
-          <span className="text-gray-400">DRONE</span><span className="font-bold text-[#67e8f9]">{droneStatus}</span>
-          <span className="text-gray-400">BUOY</span><span className="font-bold text-[#fbbf24]">{buoyStatus}</span>
-          <span className="text-gray-400">TEAM</span><span className="font-bold text-[#c4b5fd]">{responderStatus}</span>
-          <span className="text-gray-400">RESPONSE TIMER</span><span className="font-bold text-[#F59E0B]">{elapsed}</span>
-        </div>
-        <button
-          onClick={onExecuteRescue}
-          className="w-full py-2 rounded bg-gradient-to-r from-[#ef4444] to-[#f59e0b] text-white font-extrabold"
-        >
-          EXECUTE DUAL DISPATCH
-        </button>
-        <button
-          onClick={onOverrideDispatch}
-          className="w-full py-1.5 rounded border border-[#a78bfa]/60 bg-[#a78bfa]/15 text-[#c4b5fd] font-bold"
-        >
-          OVERRIDE TEAM DISPATCH
-        </button>
+        <DispatchMatrixPanel
+          activeDistress={true}
+          puckId={puckId}
+          targetLocation={filteredLocation}
+          waterVelocity={sensorData.waterVelocity}
+          driftHeading={sensorData.driftHeading}
+          droneLocation={droneLocation}
+          buoyLocation={buoyLocation}
+          responderLocation={responderLocation}
+          droneStatus={droneStatus}
+          buoyStatus={buoyStatus}
+          responderStatus={responderStatus}
+          onExecuteRescue={onExecuteRescue}
+          onOverrideDispatch={onOverrideDispatch}
+        />
         <button
           onClick={onResolveIncident}
           className="w-full py-1.5 rounded border border-[#10b981]/70 bg-[#10b981]/15 text-[#6ee7b7] font-bold"

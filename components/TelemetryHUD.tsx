@@ -21,6 +21,7 @@ import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
 import { HydrodynamicVectorResult, RESPONDER_SPEEDS } from '@/lib/hydrodynamics';
 import { AudioWaveform } from './AudioWaveform';
 import { DroneCameraHUD } from './DroneCameraHUD';
+import { DispatchMatrixPanel } from './DispatchMatrixPanel';
 
 export interface TelemetryHUDProps {
   puckId: string | null;
@@ -519,7 +520,27 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         puckId={puckId}
         activeDistress={activeDistress}
         droneStatus={droneStatus}
+        droneLocation={droneLocation}
+        thermalDelta={sensorData?.thermalDelta}
+        screechConfidence={sensorData?.screechConfidence}
         onManualPayloadDrop={onManualPayloadDrop}
+      />
+
+      {/* Dynamic TTI Dispatch Engine & Hero UX Matrix Panel */}
+      <DispatchMatrixPanel
+        activeDistress={activeDistress}
+        puckId={puckId}
+        targetLocation={target}
+        waterVelocity={sensorData?.waterVelocity}
+        driftHeading={sensorData?.driftHeading}
+        droneLocation={droneLocation}
+        buoyLocation={buoyLocation}
+        responderLocation={responderLocation}
+        droneStatus={droneStatus}
+        buoyStatus={buoyStatus}
+        responderStatus={responderStatus}
+        onExecuteRescue={onExecuteRescue}
+        onOverrideDispatch={onOverrideDispatch}
       />
 
       {/* Payload & Gimbal Lock Indicators */}
@@ -534,41 +555,8 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         </div>
       </div>
 
-      {/* Action Trigger Matrix */}
+      {/* Resolve Action & Keyboard Hotkey Command Cheat-Strip */}
       <div className="space-y-2 pt-1">
-        <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">TACTICAL DISPATCH MATRIX</div>
-
-        <button
-          onClick={onExecuteRescue}
-          disabled={!activeDistress}
-          className={`w-full py-3 px-4 rounded-lg font-bold text-sm uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-xl ${
-            activeDistress
-              ? 'bg-gradient-to-r from-[#EF4444] to-[#F59E0B] text-white hover:brightness-110 border border-[#EF4444]'
-              : 'bg-gray-800 text-gray-500 border border-gray-700 cursor-not-allowed'
-          }`}
-        >
-          <Zap className="w-4 h-4 animate-pulse" />
-          <span>EXECUTE DUAL RESCUE DISPATCH</span>
-        </button>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={onOverrideDispatch}
-            className="py-2 px-3 rounded-lg bg-[#06B6D4]/15 border border-[#06B6D4]/50 text-[#06B6D4] hover:bg-[#06B6D4]/30 font-bold text-xs uppercase flex items-center justify-center space-x-1 transition-all"
-          >
-            <Send className="w-3 h-3" />
-            <span>OVERRIDE DISPATCH</span>
-          </button>
-
-          <button
-            onClick={onManualPayloadDrop}
-            className="py-2 px-3 rounded-lg bg-[#F59E0B]/15 border border-[#F59E0B]/50 text-[#F59E0B] hover:bg-[#F59E0B]/30 font-bold text-xs uppercase flex items-center justify-center space-x-1 transition-all"
-          >
-            <Crosshair className="w-3 h-3" />
-            <span>MANUAL PAYLOAD DROP</span>
-          </button>
-        </div>
-
         <button
           onClick={onResolveIncident}
           className="w-full py-2 px-3 rounded-lg bg-gray-800/80 border border-gray-700 hover:bg-gray-700 text-gray-300 font-semibold text-xs uppercase flex items-center justify-center space-x-1.5 transition-all"
@@ -577,14 +565,13 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           <span>RESOLVE INCIDENT & CLEAR ALERT</span>
         </button>
 
-        {/* Keyboard Hotkey Command Cheat-Strip */}
         <div className="bg-[#090D16] p-2 rounded-lg border border-[#06B6D4]/30 text-[10px] font-mono text-gray-400 flex items-center justify-between mt-2">
           <span className="flex items-center gap-1 text-[#06B6D4] font-bold">
             <Keyboard className="w-3.5 h-3.5" />
             HOTKEYS:
           </span>
           <div className="flex space-x-2 text-[9px]">
-            <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[SPACE]</kbd> Dispatch</span>
+            <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[SPACE]</kbd> Auto-Dispatch</span>
             <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[D]</kbd> Vest</span>
             <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[R]</kbd> Resolve</span>
             <span><kbd className="px-1 py-0.5 bg-gray-800 border border-gray-600 rounded text-white font-bold">[M]</kbd> Mute</span>
