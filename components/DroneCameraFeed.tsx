@@ -207,7 +207,7 @@ export const DroneCameraFeed: React.FC<DroneCameraFeedProps> = ({
       </div>
 
       {/* Main Video Screen Container */}
-      <div className="relative flex-1 min-h-[240px] max-h-[340px] bg-black">
+      <div className="relative flex-1 min-h-[240px] bg-black">
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
         {/* Video Overlay Info Header */}

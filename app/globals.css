@@ -106,3 +106,38 @@ body {
   animation: emergencyPulse 2.5s ease-in-out infinite;
 }
 
+/* ── Tactical Command Center Layout helpers ────────────────────────────── */
+
+/* Smooth right-panel transition when switching workspace views */
+.tactical-right-panel {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Panel card hover shimmer */
+@keyframes panelHoverShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Status badge pulse for CRITICAL DISTRESS */
+@keyframes criticalBadgePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.critical-badge {
+  animation: criticalBadgePulse 1.8s ease-in-out infinite;
+}
+
+/* Incident timeline node active ring */
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Compact telemetry row progress bar fill */
+@keyframes telemetryFill {
+  from { width: 0; }
+}
