@@ -27,9 +27,14 @@ import { BriefingResponse } from '@/lib/gemini';
 import { LogEntry } from '@/lib/socket';
 import AIBriefing from './AIBriefing';
 import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
+<<<<<<< HEAD
 import { Sidebar } from './Sidebar';
 import { TelemetryRow } from './TelemetryRow';
 import { IncidentTimeline } from './IncidentTimeline';
+=======
+import DispatchMatrixPanel from './DispatchMatrixPanel';
+import WorkspacePanel from './WorkspacePanel';
+>>>>>>> 6660427e0c483f4d2f0095f55dcf45f357e96395
 import {
   CRITICAL_PANEL_IDS,
   cloneLayoutMap,
@@ -324,9 +329,191 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
     );
   }, [targetLat, targetLng]);
 
+<<<<<<< HEAD
   // ── Panel Content Definitions ─────────────────────────────────────────────
   // Defined as variables (not in panelContent map) so they're clearly readable
   // and used directly in the per-view layout functions below.
+=======
+  const panelContent: Record<PanelId, React.ReactNode> = {
+    'active-target': (
+      <div className="space-y-2 text-xs">
+        <div className="text-lg font-extrabold text-white">{puckId || 'PUCK-ALPHA-04'}</div>
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">STATUS</span><span className="text-[#EF4444] font-bold">CRITICAL DISTRESS</span>
+          <span className="text-gray-400">LAT</span><span className="font-bold">{targetLat.toFixed(6)}</span>
+          <span className="text-gray-400">LNG</span><span className="font-bold">{targetLng.toFixed(6)}</span>
+          <span className="text-gray-400">GPS</span><span className="text-[#10B981] font-bold">FILTERED / STABLE</span>
+          <span className="text-gray-400">LOCK</span><span className="font-bold text-[#10B981]">{isConnected ? 'LIVE TARGET LOCK' : 'SIM TARGET LOCK'}</span>
+        </div>
+      </div>
+    ),
+    'kalman-gps': (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2">
+            <div className="text-gray-400 text-[10px]">FILTERED LAT</div>
+            <div className="text-[#67e8f9] font-bold">{targetLat.toFixed(6)}</div>
+          </div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2">
+            <div className="text-gray-400 text-[10px]">FILTERED LNG</div>
+            <div className="text-[#67e8f9] font-bold">{targetLng.toFixed(6)}</div>
+          </div>
+        </div>
+        <div className="flex justify-between text-[11px]">
+          <span className="text-gray-400">NOISE DELTA</span>
+          <span className="text-[#F59E0B] font-bold">{(filteredLocation as FilteredResult)?.noiseDeltaMeters ?? 0}m</span>
+        </div>
+      </div>
+    ),
+    'raw-gps': (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">RAW LAT</span><span className="font-bold">{(rawLocation?.lat ?? targetLat).toFixed(6)}</span>
+          <span className="text-gray-400">RAW LNG</span><span className="font-bold">{(rawLocation?.lng ?? targetLng).toFixed(6)}</span>
+          <span className="text-gray-400">MODE</span><span className="text-[#F59E0B] font-bold">MULTIPATH NOISY</span>
+        </div>
+      </div>
+    ),
+    'drone-camera': (
+      <DroneCameraFeed
+        mode={cameraMode}
+        onModeChange={setCameraMode}
+        detectionConfidence={recognitionConfidence}
+        targetLat={targetLat}
+        targetLng={targetLng}
+        altitudeM={Math.max(20, Math.min(95, droneDist * 0.18))}
+        headingDeg={droneHeading}
+        signalDbm={isConnected ? -42 : -67}
+        distanceToTarget={droneDist}
+        droneId="UAV-RESCUE-01"
+        isSimulated={true}
+      />
+    ),
+    'drone-sensors': (
+      <div className="space-y-2.5 text-xs">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">CAMERA</div><div className="font-bold text-[#10B981]">{cameraMode} ACTIVE</div></div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">TARGET</div><div className="font-bold text-[#10B981]">PERSON LOCKED</div></div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">DISTANCE</div><div className="font-bold">{Math.round(droneDist)} m</div></div>
+          <div className="bg-[#111827] border border-[#1f293d] rounded p-2"><div className="text-gray-400">ETA</div><div className="font-bold">{formatEtaClock(droneEta)}</div></div>
+        </div>
+        <div className="border-t border-[#1f293d] pt-2">
+          <div className="text-[#67e8f9] font-bold mb-1">LIFE JACKET PAYLOAD</div>
+          <div className="grid grid-cols-2 gap-y-1">
+            <span className="text-gray-400">STATUS</span><span className="text-[#10B981] font-bold">READY</span>
+            <span className="text-gray-400">TARGET LOCK</span><span className="text-[#10B981] font-bold">✓</span>
+            <span className="text-gray-400">DROP ZONE</span><span className="text-[#10B981] font-bold">LOCKED</span>
+          </div>
+          <button
+            onClick={onManualPayloadDrop}
+            className="mt-2 w-full py-1.5 rounded border border-[#06b6d4]/60 bg-[#06b6d4]/15 text-[#67e8f9] font-bold"
+          >
+            RELEASE PAYLOAD (SIMULATED COMMAND)
+          </button>
+        </div>
+      </div>
+    ),
+    'rescue-team': (
+      <div className="space-y-2 text-xs">
+        <div className="text-white font-bold">RESCUE TEAM-01</div>
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">GPS</span><span className="font-bold">{(responderLocation?.lat ?? 17.384721).toFixed(6)}, {(responderLocation?.lng ?? 78.485932).toFixed(6)}</span>
+          <span className="text-gray-400">DISTANCE</span><span className="font-bold">{Math.round(responderDist)} m</span>
+          <span className="text-gray-400">ETA</span><span className="font-bold">{formatEtaClock(responderEta)}</span>
+          <span className="text-gray-400">STATUS</span><span className="text-[#10B981] font-bold">{responderStatus === 'STANDBY' ? 'EN ROUTE' : responderStatus}</span>
+          <span className="text-gray-400">BEARING</span><span className="font-bold">{responderLocation ? Math.round(calculateBearingDeg(responderLocation, { lat: targetLat, lng: targetLng })) : 0}°</span>
+        </div>
+        <button
+          onClick={handleOpenNavigation}
+          className="w-full py-1.5 rounded border border-[#a78bfa]/60 bg-[#a78bfa]/15 text-[#c4b5fd] font-bold flex items-center justify-center gap-1.5"
+        >
+          <Navigation className="w-3.5 h-3.5" />
+          OPEN NAVIGATION
+        </button>
+      </div>
+    ),
+    'audio-analysis': (
+      <div className="space-y-2 text-xs">
+        <div>
+          <div className="flex justify-between mb-1">
+            <span className="text-gray-400">ACOUSTIC DISTRESS CONF.</span>
+            <span className="text-[#EF4444] font-bold">{Math.round(sensorData.screechConfidence * 100)}%</span>
+          </div>
+          <div className="w-full h-2 bg-gray-800 rounded overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444]" style={{ width: `${Math.round(sensorData.screechConfidence * 100)}%` }} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">THERMAL DELTA</span><span className="text-[#F59E0B] font-bold">+{sensorData.thermalDelta.toFixed(1)}°C</span>
+          <span className="text-gray-400">DETECTION</span><span className="font-bold">{detectionConfidence}%</span>
+          <span className="text-gray-400">RECOGNITION</span><span className="font-bold">{recognitionConfidence}%</span>
+          <span className="text-gray-400">RISK</span><span className="text-[#EF4444] font-bold">{riskConfidence}%</span>
+        </div>
+      </div>
+    ),
+    hydrodynamics: (
+      <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-2 gap-y-1.5">
+          <span className="text-gray-400">CURRENT</span><span className="font-bold">{sensorData.waterVelocity.toFixed(1)} m/s</span>
+          <span className="text-gray-400">DRIFT HEADING</span><span className="font-bold">{sensorData.driftHeading}°</span>
+          <span className="text-gray-400">COMP HEADING</span><span className="text-[#10B981] font-bold">{hydrodynamics?.compensatedHeadingDeg ?? sensorData.driftHeading}°</span>
+          <span className="text-gray-400">BUOY ETA</span><span className="font-bold">{formatEtaClock(buoyEta)}</span>
+          <span className="text-gray-400">BUOY DIST</span><span className="font-bold">{Math.round(buoyDist)} m</span>
+        </div>
+        <div className="flex items-center justify-between pt-1 border-t border-[#1f293d]">
+          <span className="text-gray-400">PREDICTION WINDOW</span>
+          <div className="flex gap-1">
+            {([15, 30, 45, 60] as const).map((sec) => (
+              <button
+                key={sec}
+                onClick={() => setPredictionWindow(sec)}
+                className={`px-2 py-0.5 rounded border text-[10px] font-bold ${predictionWindow === sec ? 'border-[#06b6d4] text-[#67e8f9] bg-[#06b6d4]/15' : 'border-[#374151] text-gray-300'}`}
+              >
+                {sec}s
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    ),
+    'ai-briefing': <AIBriefing briefing={aiBriefing} audioVoiceEnabled={audioVoiceEnabled} />,
+    'incident-timeline': (
+      <div className="space-y-1.5 text-xs">
+        {timelineEntries.map((entry, idx) => (
+          <div key={`${entry.time}-${idx}`} className="flex gap-2">
+            <span className="w-[68px] shrink-0 text-[#67e8f9] font-bold">{entry.time}</span>
+            <span className="text-gray-200">{entry.message}</span>
+          </div>
+        ))}
+      </div>
+    ),
+    'mission-controls': (
+      <div className="space-y-2 text-xs">
+        <DispatchMatrixPanel
+          activeDistress={true}
+          puckId={puckId}
+          targetLocation={filteredLocation}
+          waterVelocity={sensorData.waterVelocity}
+          driftHeading={sensorData.driftHeading}
+          droneLocation={droneLocation}
+          buoyLocation={buoyLocation}
+          responderLocation={responderLocation}
+          droneStatus={droneStatus}
+          buoyStatus={buoyStatus}
+          responderStatus={responderStatus}
+          onExecuteRescue={onExecuteRescue}
+          onOverrideDispatch={onOverrideDispatch}
+        />
+        <button
+          onClick={onResolveIncident}
+          className="w-full py-1.5 rounded border border-[#10b981]/70 bg-[#10b981]/15 text-[#6ee7b7] font-bold"
+        >
+          RESOLVE INCIDENT
+        </button>
+      </div>
+    ),
+  };
+>>>>>>> 6660427e0c483f4d2f0095f55dcf45f357e96395
 
   const activeTargetContent = (
     <div className="space-y-2.5 text-xs">
