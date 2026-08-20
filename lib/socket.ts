@@ -2,11 +2,14 @@
  * AquaRescue WebSocket Client & High-Frequency Telemetry Buffer
  * 
  * Features:
- * - Socket.io auto-connecting to localhost:5000 or custom host
+ * - Socket.io auto-connecting to NEXT_PUBLIC_SOCKET_URL or fallback http://localhost:5000
+ * - Single unified Socket.io client instance export
+ * - Fallback transport compatibility: ['websocket', 'polling']
+ * - Reconnection attempts: Infinity
  * - Sub-100ms useRef high-frequency state buffering & RAF frame throttling
  * - Real-time 2D Kalman Filter integration for sub-meter lat/lng smoothing
  * - Hydrodynamic drift compensation calculation
- * - Command emission back to Laptop 1
+ * - Command emission back to server / hardware
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -71,24 +74,31 @@ export interface AquaRescueState {
   serverUrl: string;
 }
 
-const DEFAULT_SERVER_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+// Environment bindings & dynamic connection URL
+export const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+
+// Single unified Socket.io client instance
+export const socket: Socket = io(SOCKET_URL, {
+  transports: ['websocket', 'polling'],
+  autoConnect: true,
+  reconnectionAttempts: Infinity,
+});
 
 const INITIAL_VICTIM: GPSCoordinate = { lat: 17.385044, lng: 78.486671 };
 const INITIAL_DRONE: GPSCoordinate = { lat: 17.387544, lng: 78.489171 };
 const INITIAL_BUOY: GPSCoordinate = { lat: 17.383044, lng: 78.485171 };
 const INITIAL_RESPONDER: GPSCoordinate = { lat: 17.382044, lng: 78.488671 };
 
-export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
+export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
   // High-frequency useRef buffer for 100ms telemetry ticks
   const telemetryBufferRef = useRef<TelemetryData | null>(null);
   const kalmanRef = useRef<KalmanFilter2D>(new KalmanFilter2D(1e-5, 5e-5));
-  const socketRef = useRef<Socket | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const lastStateUpdateMsRef = useRef<number>(0);
 
   // Main UI State
   const [state, setState] = useState<AquaRescueState>({
-    isConnected: false,
+    isConnected: socket.connected,
     activeDistress: false,
     puckId: 'PUCK-ALPHA-04',
     rawLocation: INITIAL_VICTIM,
@@ -155,13 +165,11 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     const tick = (now: number) => {
       if (!mounted) return;
 
-      // Throttle UI re-renders to max ~20 FPS (every 50ms) to ensure smooth 60fps animations
       if (now - lastStateUpdateMsRef.current >= 50) {
         lastStateUpdateMsRef.current = now;
 
         const data = telemetryBufferRef.current;
         if (data) {
-          // Pass through Kalman Filter engine
           const kalmanOut = kalmanRef.current.update(
             data.location.lat,
             data.location.lng,
@@ -169,7 +177,6 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
           );
 
           setState(prev => {
-            // Update Drone, Buoy and Responder simulation positions towards target
             const newDroneLat = prev.droneLocation.lat + (kalmanOut.lat - prev.droneLocation.lat) * 0.02;
             const newDroneLng = prev.droneLocation.lng + (kalmanOut.lng - prev.droneLocation.lng) * 0.02;
             const newBuoyLat = prev.buoyLocation.lat + (kalmanOut.lat - prev.buoyLocation.lat) * 0.015;
@@ -181,7 +188,6 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
             const updatedBuoyPath = [...prev.buoyPath, { lat: newBuoyLat, lng: newBuoyLng }].slice(-40);
             const updatedResponderPath = [...prev.responderPath, { lat: newResponderLat, lng: newResponderLng }].slice(-40);
 
-            // Compute Hydrodynamic Vector Compensation using active coordinates
             const hydro = calculateDriftCompensatedVector(
               { lat: kalmanOut.lat, lng: kalmanOut.lng },
               data.sensor_data.water_velocity_ms,
@@ -190,7 +196,6 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
               { lat: newDroneLat, lng: newDroneLng }
             );
 
-            // Process status transitions
             const droneDist = KalmanFilter2D.haversineDistanceMeters(newDroneLat, newDroneLng, kalmanOut.lat, kalmanOut.lng);
             const buoyDist = KalmanFilter2D.haversineDistanceMeters(newBuoyLat, newBuoyLng, kalmanOut.lat, kalmanOut.lng);
             const responderDist = KalmanFilter2D.haversineDistanceMeters(newResponderLat, newResponderLng, kalmanOut.lat, kalmanOut.lng);
@@ -261,28 +266,21 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
     audioVoiceEnabledRef.current = state.audioVoiceEnabled;
   }, [state.audioVoiceEnabled]);
 
-  // Socket Connection setup
+  // Socket Connection Listeners
   useEffect(() => {
-    addLog('SYSTEM', `Connecting to WebSocket server at ${serverUrl}...`);
+    addLog('SYSTEM', `Bound WebSocket client to ${serverUrl}`);
 
-    const socket = io(serverUrl, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
+    const onConnect = () => {
       setState(prev => ({ ...prev, isConnected: true }));
-      addLog('SYSTEM', `Connected to AquaRescue Mesh Server (${socket.id})`);
-    });
+      addLog('SYSTEM', `Connected to AquaRescue Socket.io Server (${socket.id})`);
+    };
 
-    socket.on('disconnect', () => {
+    const onDisconnect = () => {
       setState(prev => ({ ...prev, isConnected: false }));
-      addLog('SYSTEM', 'Disconnected from WebSocket server');
-    });
+      addLog('SYSTEM', 'Disconnected from Socket.io server');
+    };
 
-    socket.on('DISTRESS_TRIGGERED', async (data: TelemetryData) => {
+    const onDistressTriggered = async (data: TelemetryData) => {
       processTelemetry(data);
       addLog(
         'ALERT',
@@ -290,14 +288,12 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
         `Lat: ${data.location.lat.toFixed(6)}, Lng: ${data.location.lng.toFixed(6)} | Audio: ${(data.sensor_data.audio_screech_confidence * 100).toFixed(0)}%`
       );
 
-      // ETA Timeline logs
       addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
       addLog('SYSTEM', 'UAV-RESCUE-01 INITIAL ESTIMATED ETA: 18 SEC');
       addLog('SYSTEM', 'BUOY-HYDRO-02 INITIAL ESTIMATED ETA: 31 SEC');
       addLog('SYSTEM', 'RESPONSE TEAM INITIAL ESTIMATED ETA: 1M 42S');
       addLog('AI', 'UAV-RESCUE-01 RECOMMENDED AS FASTEST RESPONSE');
 
-      // Trigger Gemini AI Tactical Incident Briefing
       try {
         const briefing = await generateTacticalBriefing(data);
         setState(prev => ({ ...prev, aiBriefing: briefing }));
@@ -309,10 +305,20 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       } catch (err) {
         console.error('Error generating AI briefing:', err);
       }
-    });
+    };
+
+    if (socket.connected) {
+      onConnect();
+    }
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('DISTRESS_TRIGGERED', onDistressTriggered);
 
     return () => {
-      socket.disconnect();
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('DISTRESS_TRIGGERED', onDistressTriggered);
     };
   }, [serverUrl, processTelemetry, addLog]);
 
@@ -334,8 +340,8 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       }
     };
 
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('EXECUTE_RESCUE', payload);
+    if (socket.connected) {
+      socket.emit('EXECUTE_RESCUE', payload);
     }
     setState(prev => ({
       ...prev,
@@ -352,8 +358,8 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       location: state.filteredLocation,
       timestamp: Date.now()
     };
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('OVERRIDE_DISPATCH', payload);
+    if (socket.connected) {
+      socket.emit('OVERRIDE_DISPATCH', payload);
     }
     setState(prev => ({
       ...prev,
@@ -369,8 +375,8 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       target_coords: state.filteredLocation,
       timestamp: Date.now()
     };
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('MANUAL_PAYLOAD_DROP', payload);
+    if (socket.connected) {
+      socket.emit('MANUAL_PAYLOAD_DROP', payload);
     }
     setState(prev => ({
       ...prev,
@@ -409,8 +415,8 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       aiBriefing: null,
       hydrodynamics: null
     }));
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('RESOLVE_INCIDENT', { puck_id: state.puckId });
+    if (socket.connected) {
+      socket.emit('RESOLVE_INCIDENT', { puck_id: state.puckId });
     }
     addLog('SYSTEM', `Incident ${state.puckId} RESOLVED & System Reset`);
   }, [state.puckId, addLog]);
@@ -442,11 +448,10 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_SERVER_URL) {
       timestamp: Date.now()
     };
 
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('SIMULATE_TELEMETRY', mockPayload);
+    if (socket.connected) {
+      socket.emit('SIMULATE_TELEMETRY', mockPayload);
     } else {
       processTelemetry(mockPayload);
-      // ETA Timeline logs
       addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
       addLog('SYSTEM', 'UAV-RESCUE-01 INITIAL ESTIMATED ETA: 18 SEC');
       addLog('SYSTEM', 'BUOY-HYDRO-02 INITIAL ESTIMATED ETA: 31 SEC');
