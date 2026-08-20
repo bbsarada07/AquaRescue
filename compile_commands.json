@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "c:/Users/bbsar/Desktop/AquqRescue",
+    "command": "clang -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -c src/sketch.ino -o src/sketch.o",
+    "file": "src/sketch.ino"
+  }
+]

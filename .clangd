@@ -1,6 +1,8 @@
 CompileFlags:
   Add:
-    - "-xc++"
+    - "-x"
+    - "c++"
     - "-std=c++17"
     - "-DARDUINO=10800"
     - "-DESP32"
+  Compiler: clang
