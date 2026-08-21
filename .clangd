@@ -5,4 +5,8 @@ CompileFlags:
     - "-std=c++17"
     - "-DARDUINO=10800"
     - "-DESP32"
-  Compiler: clang
+    - "-Iinclude"
+    - "-include"
+    - "include/Arduino.h"
+  Compiler: g++
+

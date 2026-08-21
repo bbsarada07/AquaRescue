@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { HeaderBar } from '@/components/HeaderBar';
 import { TelemetryHUD } from '@/components/TelemetryHUD';
@@ -9,6 +9,10 @@ import { AlertDrawer } from '@/components/AlertDrawer';
 import { SignalHealthMonitor } from '@/components/SignalHealthMonitor';
 import { MissionCompleteModal } from '@/components/MissionCompleteModal';
 import { FieldResponderDispatch } from '@/components/FieldResponderDispatch';
+import { RedEmergencyBanner } from '@/components/RedEmergencyBanner';
+import { OperatorPanel } from '@/components/OperatorPanel';
+import { QuickTourOverlay } from '@/components/QuickTourOverlay';
+import { UIProvider, useUI } from '@/lib/uiContext';
 import { useSocketTelemetry } from '@/lib/socket';
 import { useHotkeys } from '@/lib/useHotkeys';
 
@@ -24,23 +28,13 @@ const LeafletMapView = dynamic(
   }
 );
 
-const ActiveMissionOverlay = dynamic(
-  () => import('@/components/ActiveMissionOverlay'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full bg-[#090D16] flex items-center justify-center font-mono text-xs text-[#EF4444]">
-        INITIALIZING EMERGENCY MISSION MODE...
-      </div>
-    ),
-  }
-);
-
-
-export default function AquaRescueDashboard() {
+function DashboardContent() {
+  const { mode, speakEvent } = useUI();
   const [predictionWindow, setPredictionWindow] = useState<15 | 30 | 45 | 60>(30);
   const [showMissionComplete, setShowMissionComplete] = useState(false);
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
+  const prevDistressRef = useRef(false);
+
   const [lastMissionSummary, setLastMissionSummary] = useState<{
     puckId: string;
     missionId: string | null;
@@ -63,7 +57,15 @@ export default function AquaRescueDashboard() {
     triggerDemoScenario,
   } = useSocketTelemetry();
 
-  // Custom resolve handler to snapshot metrics for completion modal
+  // Voice announcements on critical emergency events
+  useEffect(() => {
+    if (state.activeDistress && !prevDistressRef.current) {
+      speakEvent('Critical distress signal detected. One click auto dispatch ready.');
+    }
+    prevDistressRef.current = state.activeDistress;
+  }, [state.activeDistress, speakEvent]);
+
+  // Handle mission completion and snapshot metrics
   const handleResolveIncident = useCallback(() => {
     if (state.activeDistress) {
       const elapsedSec = state.missionStartTime
@@ -86,20 +88,33 @@ export default function AquaRescueDashboard() {
       });
 
       setShowMissionComplete(true);
+      speakEvent('Mission completed. Victim secured.');
     }
     resolveIncident();
-  }, [state, resolveIncident]);
+  }, [state, resolveIncident, speakEvent]);
 
-  // Global Tactical Keyboard Hotkey Command Engine ([SPACE], [D], [R], [M])
+  // Global Keyboard Hotkey Handler
   useHotkeys({
-    onExecuteRescue: sendExecuteRescue,
-    onManualPayloadDrop: sendManualPayloadDrop,
+    onExecuteRescue: () => {
+      sendExecuteRescue();
+      speakEvent('Rescue units auto dispatched. Drone en route.');
+    },
+    onManualPayloadDrop: () => {
+      sendManualPayloadDrop();
+      speakEvent('Drone payload dropped at target coordinates.');
+    },
     onResolveIncident: handleResolveIncident,
     onToggleAudio: toggleAudioVoice,
   });
 
+  const handleAutoDispatch = useCallback(() => {
+    sendExecuteRescue();
+    speakEvent('Rescue units auto dispatched. Drone en route.');
+  }, [sendExecuteRescue, speakEvent]);
+
   return (
-    <div className="flex flex-col w-full h-screen bg-[#090D16] overflow-hidden relative">
+    <div className="flex flex-col w-full h-screen bg-[#090D16] overflow-hidden relative font-sans text-slate-100">
+      
       {/* ── RESPONDER MOBILE GPS LINK & QR DISPATCH MODAL ────────────────── */}
       <FieldResponderDispatch
         isOpen={isDispatchModalOpen}
@@ -111,38 +126,8 @@ export default function AquaRescueDashboard() {
         buoyEtaSec={state.hydrodynamics?.distanceMatrix?.buoyEtaSec}
       />
 
-      {/* ── FULL-SCREEN ACTIVE RESCUE MISSION OVERLAY (WHEN DISTRESS ACTIVE) ── */}
-      {state.activeDistress && (
-        <ActiveMissionOverlay
-          missionId={state.missionId}
-          missionStartTime={state.missionStartTime}
-          puckId={state.puckId}
-          filteredLocation={state.filteredLocation}
-          rawLocation={state.rawLocation}
-          sensorData={state.sensorData}
-          hydrodynamics={state.hydrodynamics}
-          droneLocation={state.droneLocation}
-          buoyLocation={state.buoyLocation}
-          responderLocation={state.responderLocation}
-          dronePath={state.dronePath}
-          buoyPath={state.buoyPath}
-          responderPath={state.responderPath}
-          droneStatus={state.droneStatus}
-          buoyStatus={state.buoyStatus}
-          responderStatus={state.responderStatus}
-          predictionWindow={predictionWindow}
-          setPredictionWindow={setPredictionWindow}
-          aiBriefing={state.aiBriefing}
-          audioVoiceEnabled={state.audioVoiceEnabled}
-          eventLogs={state.eventLogs}
-          isConnected={state.isConnected}
-          onExecuteRescue={sendExecuteRescue}
-          onOverrideDispatch={sendOverrideDispatch}
-          onManualPayloadDrop={sendManualPayloadDrop}
-          onResolveIncident={handleResolveIncident}
-          onToggleAudio={toggleAudioVoice}
-        />
-      )}
+      {/* ── INTERACTIVE QUICK TOUR DEMO WALKTHROUGH OVERLAY ──────────────── */}
+      <QuickTourOverlay />
 
       {/* ── MISSION COMPLETE MODAL (WHEN INCIDENT RESOLVED) ────────────────── */}
       {showMissionComplete && lastMissionSummary && (
@@ -161,7 +146,7 @@ export default function AquaRescueDashboard() {
         />
       )}
 
-      {/* ── NORMAL COMMAND DASHBOARD (MONITORING MODE) ────────────────────── */}
+      {/* ── TOP HEADER BAR WITH DUAL UI MODE TOGGLE & QUICK TOUR ────────── */}
       <HeaderBar
         isConnected={state.isConnected}
         activeDistress={state.activeDistress}
@@ -172,10 +157,29 @@ export default function AquaRescueDashboard() {
         onShareTrack={() => setIsDispatchModalOpen(true)}
       />
 
-      {/* Main Command Grid Layout: 65% Interactive 3D Map | 35% Telemetry HUD & AI Panel */}
-      <main className="flex-1 min-h-0 flex flex-col lg:flex-row w-full overflow-hidden">
-        {/* 65% Interactive Spatial Map View */}
-        <div className="w-full lg:w-[65%] h-[50vh] lg:h-full relative">
+      {/* ── PERSISTENT RED EMERGENCY BANNER WITH 1-CLICK AUTO DISPATCH ───── */}
+      {state.activeDistress && (
+        <RedEmergencyBanner
+          activeDistress={state.activeDistress}
+          puckId={state.puckId}
+          droneStatus={state.droneStatus}
+          buoyStatus={state.buoyStatus}
+          responderStatus={state.responderStatus}
+          filteredLocation={state.filteredLocation}
+          onAutoDispatch={handleAutoDispatch}
+          onResolveIncident={handleResolveIncident}
+        />
+      )}
+
+      {/* ── MAIN COMMAND CENTER DUAL-MODE LAYOUT ─────────────────────────── */}
+      <main className="flex-1 min-h-0 flex flex-col lg:flex-row w-full overflow-hidden transition-all duration-300">
+        
+        {/* ── MAP CANVAS (70% IN OPERATOR MODE | 65% IN TACTICAL MODE) ────── */}
+        <div
+          className={`w-full h-[50vh] lg:h-full relative transition-all duration-300 ${
+            mode === 'OPERATOR' ? 'lg:w-[70%]' : 'lg:w-[65%]'
+          }`}
+        >
           <LeafletMapView
             filteredTarget={state.filteredLocation}
             rawTarget={state.rawLocation}
@@ -197,58 +201,82 @@ export default function AquaRescueDashboard() {
           />
         </div>
 
-        {/* 35% Telemetry HUD & Intelligence Panel */}
-        <div className="w-full lg:w-[35%] h-[50vh] lg:h-full bg-[#111827] flex flex-col overflow-y-auto border-l border-[#1F293D] shadow-2xl">
-          {/* Top Telemetry Metrics & Action Console */}
-          <div className="flex-1 min-h-[360px]">
-            <TelemetryHUD
-              puckId={state.puckId}
-              filteredLocation={state.filteredLocation}
-              rawLocation={state.rawLocation}
-              sensorData={state.sensorData}
-              hydrodynamics={state.hydrodynamics}
-              activeDistress={state.activeDistress}
-              onExecuteRescue={sendExecuteRescue}
-              onOverrideDispatch={sendOverrideDispatch}
-              onManualPayloadDrop={sendManualPayloadDrop}
-              onResolveIncident={handleResolveIncident}
-              predictionWindow={predictionWindow}
-              setPredictionWindow={setPredictionWindow}
-              isConnected={state.isConnected}
-              droneLocation={state.droneLocation}
-              buoyLocation={state.buoyLocation}
-              responderLocation={state.responderLocation}
+        {/* ── RIGHT PANEL (30% IN OPERATOR MODE | 35% IN TACTICAL MODE) ───── */}
+        <div
+          className={`w-full h-[50vh] lg:h-full bg-[#0D1322] flex flex-col overflow-y-auto border-l border-slate-800 transition-all duration-300 ${
+            mode === 'OPERATOR' ? 'lg:w-[30%]' : 'lg:w-[35%]'
+          }`}
+        >
+          {mode === 'OPERATOR' ? (
+            /* OPERATOR MODE: Streamlined 2-Card Panel */
+            <OperatorPanel
               droneStatus={state.droneStatus}
               buoyStatus={state.buoyStatus}
               responderStatus={state.responderStatus}
-            />
-          </div>
-
-          {/* Gemini Tactical AI Incident Briefing Panel */}
-          <div className="p-3 bg-[#090D16]/90 border-t border-[#1F293D]">
-            <AIBriefing
-              briefing={state.aiBriefing}
-              audioVoiceEnabled={state.audioVoiceEnabled}
-            />
-          </div>
-
-          {/* Live Signal Health Monitor */}
-          <div className="p-3 bg-[#090D16]/90 border-t border-[#1F293D]">
-            <SignalHealthMonitor
-              isConnected={state.isConnected}
-              activeDistress={state.activeDistress}
               puckId={state.puckId}
-              lastPacketTimestamp={state.lastPacketTimestamp}
+              filteredLocation={state.filteredLocation}
               sensorData={state.sensorData}
+              activeDistress={state.activeDistress}
+              onAutoDispatch={handleAutoDispatch}
+              onOverrideDispatch={sendOverrideDispatch}
+              onManualPayloadDrop={sendManualPayloadDrop}
             />
-          </div>
+          ) : (
+            /* TACTICAL MODE: Full Multi-Panel Telemetry HUD & AI Panel */
+            <>
+              <div className="flex-1 min-h-[360px]">
+                <TelemetryHUD
+                  puckId={state.puckId}
+                  filteredLocation={state.filteredLocation}
+                  rawLocation={state.rawLocation}
+                  sensorData={state.sensorData}
+                  hydrodynamics={state.hydrodynamics}
+                  activeDistress={state.activeDistress}
+                  onExecuteRescue={sendExecuteRescue}
+                  onOverrideDispatch={sendOverrideDispatch}
+                  onManualPayloadDrop={sendManualPayloadDrop}
+                  onResolveIncident={handleResolveIncident}
+                  predictionWindow={predictionWindow}
+                  setPredictionWindow={setPredictionWindow}
+                  isConnected={state.isConnected}
+                  droneLocation={state.droneLocation}
+                  buoyLocation={state.buoyLocation}
+                  responderLocation={state.responderLocation}
+                  droneStatus={state.droneStatus}
+                  buoyStatus={state.buoyStatus}
+                  responderStatus={state.responderStatus}
+                />
+              </div>
 
-          {/* Real-time Event Stream Drawer */}
-          <div className="p-3 bg-[#090D16] border-t border-[#1F293D]">
-            <AlertDrawer logs={state.eventLogs} />
-          </div>
+              <div className="p-3 bg-[#090D16]/90 border-t border-slate-800">
+                <AIBriefing briefing={state.aiBriefing} audioVoiceEnabled={state.audioVoiceEnabled} />
+              </div>
+
+              <div className="p-3 bg-[#090D16]/90 border-t border-slate-800">
+                <SignalHealthMonitor
+                  isConnected={state.isConnected}
+                  activeDistress={state.activeDistress}
+                  puckId={state.puckId}
+                  lastPacketTimestamp={state.lastPacketTimestamp}
+                  sensorData={state.sensorData}
+                />
+              </div>
+
+              <div className="p-3 bg-[#090D16] border-t border-slate-800">
+                <AlertDrawer logs={state.eventLogs} />
+              </div>
+            </>
+          )}
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AquaRescueDashboard() {
+  return (
+    <UIProvider>
+      <DashboardContent />
+    </UIProvider>
   );
 }
