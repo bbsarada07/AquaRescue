@@ -27,18 +27,12 @@ import { BriefingResponse } from '@/lib/gemini';
 import { LogEntry } from '@/lib/socket';
 import AIBriefing from './AIBriefing';
 import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
-<<<<<<< Updated upstream
+import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import { Sidebar } from './Sidebar';
 import { TelemetryRow } from './TelemetryRow';
 import { IncidentTimeline } from './IncidentTimeline';
 import DispatchMatrixPanel from './DispatchMatrixPanel';
 import WorkspacePanel from './WorkspacePanel';
-=======
-import { HumanDetectedPayload } from '@/lib/detectionEvents';
-import { Sidebar } from './Sidebar';
-import { TelemetryRow } from './TelemetryRow';
-import { IncidentTimeline } from './IncidentTimeline';
->>>>>>> Stashed changes
 import {
   CRITICAL_PANEL_IDS,
   cloneLayoutMap,
@@ -362,11 +356,8 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   }, [targetLat, targetLng]);
 
   // ── Panel Content Definitions ─────────────────────────────────────────────
-<<<<<<< Updated upstream
-=======
   // Defined as variables (not in panelContent map) so they're clearly readable
   // and used directly in the per-view layout functions below.
->>>>>>> Stashed changes
 
   const activeTargetContent = (
     <div className="space-y-2.5 text-xs">

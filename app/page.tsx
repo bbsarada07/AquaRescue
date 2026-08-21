@@ -1,12 +1,8 @@
 'use client';
 
-<<<<<<< HEAD
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-=======
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { HumanDetectedPayload } from '@/lib/detectionEvents';
->>>>>>> c9acf68d8dd79220906f9ad8ed5bc01018b10e07
 import dynamic from 'next/dynamic';
+import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import { HeaderBar } from '@/components/HeaderBar';
 import { TelemetryHUD } from '@/components/TelemetryHUD';
 import { AIBriefing } from '@/components/AIBriefing';
@@ -34,15 +30,6 @@ const LeafletMapView = dynamic(
   }
 );
 
-<<<<<<< HEAD
-function DashboardContent() {
-  const { mode, speakEvent } = useUI();
-  const [predictionWindow, setPredictionWindow] = useState<15 | 30 | 45 | 60>(30);
-  const [showMissionComplete, setShowMissionComplete] = useState(false);
-  const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
-  const prevDistressRef = useRef(false);
-
-=======
 const ActiveMissionOverlay = dynamic(
   () => import('@/components/ActiveMissionOverlay'),
   {
@@ -67,13 +54,14 @@ const DroneCameraFeed = dynamic(
   }
 );
 
-
-export default function AquaRescueDashboard() {
+function DashboardContent() {
+  const { mode, speakEvent } = useUI();
   const [predictionWindow, setPredictionWindow] = useState<15 | 30 | 45 | 60>(30);
   const [showMissionComplete, setShowMissionComplete] = useState(false);
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
   const [monitoringCameraMode, setMonitoringCameraMode] = useState<DroneCameraMode>('RGB');
->>>>>>> c9acf68d8dd79220906f9ad8ed5bc01018b10e07
+  const prevDistressRef = useRef(false);
+
   const [lastMissionSummary, setLastMissionSummary] = useState<{
     puckId: string;
     missionId: string | null;
@@ -133,6 +121,11 @@ export default function AquaRescueDashboard() {
     resolveIncident();
   }, [state, resolveIncident, speakEvent]);
 
+  const handleAutoDispatch = useCallback(() => {
+    sendExecuteRescue();
+    speakEvent('Rescue units auto dispatched. Drone en route.');
+  }, [sendExecuteRescue, speakEvent]);
+
   // Global Keyboard Hotkey Handler
   useHotkeys({
     onExecuteRescue: () => {
@@ -147,12 +140,6 @@ export default function AquaRescueDashboard() {
     onToggleAudio: toggleAudioVoice,
   });
 
-<<<<<<< HEAD
-  const handleAutoDispatch = useCallback(() => {
-    sendExecuteRescue();
-    speakEvent('Rescue units auto dispatched. Drone en route.');
-  }, [sendExecuteRescue, speakEvent]);
-=======
   // Camera-pipeline human detection → push to incident log + trigger distress if needed
   useEffect(() => {
     const handler = (e: Event) => {
@@ -167,7 +154,6 @@ export default function AquaRescueDashboard() {
     window.addEventListener('aquarescue:human-detected', handler);
     return () => window.removeEventListener('aquarescue:human-detected', handler);
   }, [addLog]);
->>>>>>> c9acf68d8dd79220906f9ad8ed5bc01018b10e07
 
   return (
     <div className="flex flex-col w-full h-screen bg-[#090D16] overflow-hidden relative font-sans text-slate-100">
@@ -258,7 +244,6 @@ export default function AquaRescueDashboard() {
           />
         </div>
 
-<<<<<<< HEAD
         {/* ── RIGHT PANEL (30% IN OPERATOR MODE | 35% IN TACTICAL MODE) ───── */}
         <div
           className={`w-full h-[50vh] lg:h-full bg-[#0D1322] flex flex-col overflow-y-auto border-l border-slate-800 transition-all duration-300 ${
@@ -268,47 +253,6 @@ export default function AquaRescueDashboard() {
           {mode === 'OPERATOR' ? (
             /* OPERATOR MODE: Streamlined 2-Card Panel */
             <OperatorPanel
-=======
-        {/* 35% Telemetry HUD & Intelligence Panel */}
-        <div className="w-full lg:w-[35%] h-[50vh] lg:h-full bg-[#111827] flex flex-col overflow-y-auto border-l border-[#1F293D] shadow-2xl">
-          {/* UAV Optical & Thermal HUD — always visible in Monitoring */}
-          <div className="shrink-0 p-3 border-b border-[#1F293D]" style={{ height: '300px', minHeight: '300px' }}>
-            <DroneCameraFeed
-              mode={monitoringCameraMode}
-              onModeChange={setMonitoringCameraMode}
-              detectionConfidence={state.sensorData.screechConfidence * 100}
-              targetLat={state.filteredLocation?.lat ?? 17.385044}
-              targetLng={state.filteredLocation?.lng ?? 78.486671}
-              altitudeM={48}
-              headingDeg={214}
-              signalDbm={-42}
-              distanceToTarget={120}
-              droneId="UAV-RESCUE-01"
-              isSimulated={!state.isConnected}
-              videoSrc={process.env.NEXT_PUBLIC_SURVEILLANCE_VIDEO ?? undefined}
-            />
-          </div>
-
-          {/* Top Telemetry Metrics & Action Console */}
-          <div className="flex-1 min-h-[360px]">
-            <TelemetryHUD
-              puckId={state.puckId}
-              filteredLocation={state.filteredLocation}
-              rawLocation={state.rawLocation}
-              sensorData={state.sensorData}
-              hydrodynamics={state.hydrodynamics}
-              activeDistress={state.activeDistress}
-              onExecuteRescue={sendExecuteRescue}
-              onOverrideDispatch={sendOverrideDispatch}
-              onManualPayloadDrop={sendManualPayloadDrop}
-              onResolveIncident={handleResolveIncident}
-              predictionWindow={predictionWindow}
-              setPredictionWindow={setPredictionWindow}
-              isConnected={state.isConnected}
-              droneLocation={state.droneLocation}
-              buoyLocation={state.buoyLocation}
-              responderLocation={state.responderLocation}
->>>>>>> c9acf68d8dd79220906f9ad8ed5bc01018b10e07
               droneStatus={state.droneStatus}
               buoyStatus={state.buoyStatus}
               responderStatus={state.responderStatus}
@@ -323,6 +267,24 @@ export default function AquaRescueDashboard() {
           ) : (
             /* TACTICAL MODE: Full Multi-Panel Telemetry HUD & AI Panel */
             <>
+              {/* UAV Optical & Thermal HUD */}
+              <div className="shrink-0 p-3 border-b border-[#1F293D]" style={{ height: '300px', minHeight: '300px' }}>
+                <DroneCameraFeed
+                  mode={monitoringCameraMode}
+                  onModeChange={setMonitoringCameraMode}
+                  detectionConfidence={state.sensorData.screechConfidence * 100}
+                  targetLat={state.filteredLocation?.lat ?? 17.385044}
+                  targetLng={state.filteredLocation?.lng ?? 78.486671}
+                  altitudeM={48}
+                  headingDeg={214}
+                  signalDbm={-42}
+                  distanceToTarget={120}
+                  droneId="UAV-RESCUE-01"
+                  isSimulated={!state.isConnected}
+                  videoSrc={process.env.NEXT_PUBLIC_SURVEILLANCE_VIDEO ?? undefined}
+                />
+              </div>
+
               <div className="flex-1 min-h-[360px]">
                 <TelemetryHUD
                   puckId={state.puckId}
