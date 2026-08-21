@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import dynamic from 'next/dynamic';
 import { HeaderBar } from '@/components/HeaderBar';
 import { TelemetryHUD } from '@/components/TelemetryHUD';
@@ -11,6 +12,7 @@ import { MissionCompleteModal } from '@/components/MissionCompleteModal';
 import { FieldResponderDispatch } from '@/components/FieldResponderDispatch';
 import { useSocketTelemetry } from '@/lib/socket';
 import { useHotkeys } from '@/lib/useHotkeys';
+import { type DroneCameraMode } from '@/components/DroneCameraFeed';
 
 const LeafletMapView = dynamic(
   () => import('@/components/LeafletMapView'),
@@ -36,11 +38,24 @@ const ActiveMissionOverlay = dynamic(
   }
 );
 
+const DroneCameraFeed = dynamic(
+  () => import('@/components/DroneCameraFeed'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full bg-[#070C16] flex items-center justify-center font-mono text-xs text-[#06B6D4]">
+        INITIALIZING UAV FEED...
+      </div>
+    ),
+  }
+);
+
 
 export default function AquaRescueDashboard() {
   const [predictionWindow, setPredictionWindow] = useState<15 | 30 | 45 | 60>(30);
   const [showMissionComplete, setShowMissionComplete] = useState(false);
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
+  const [monitoringCameraMode, setMonitoringCameraMode] = useState<DroneCameraMode>('RGB');
   const [lastMissionSummary, setLastMissionSummary] = useState<{
     puckId: string;
     missionId: string | null;
@@ -61,6 +76,7 @@ export default function AquaRescueDashboard() {
     resolveIncident,
     toggleAudioVoice,
     triggerDemoScenario,
+    addLog,
   } = useSocketTelemetry();
 
   // Custom resolve handler to snapshot metrics for completion modal
@@ -97,6 +113,21 @@ export default function AquaRescueDashboard() {
     onResolveIncident: handleResolveIncident,
     onToggleAudio: toggleAudioVoice,
   });
+
+  // Camera-pipeline human detection → push to incident log + trigger distress if needed
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const payload = (e as CustomEvent<HumanDetectedPayload>).detail;
+      const stage = payload.scenario ?? 'HUMAN_DETECTED';
+      addLog(
+        'ALERT',
+        `[UAV CAM] ${stage.replace(/_/g, ' ')} — ${payload.label}`,
+        `GPS: ${payload.lat.toFixed(6)}, ${payload.lng.toFixed(6)} · Conf: ${payload.confidence.toFixed(1)}% · ${new Date(payload.timestamp).toLocaleTimeString('en-US', { hour12: false })}`,
+      );
+    };
+    window.addEventListener('aquarescue:human-detected', handler);
+    return () => window.removeEventListener('aquarescue:human-detected', handler);
+  }, [addLog]);
 
   return (
     <div className="flex flex-col w-full h-screen bg-[#090D16] overflow-hidden relative">
@@ -199,6 +230,24 @@ export default function AquaRescueDashboard() {
 
         {/* 35% Telemetry HUD & Intelligence Panel */}
         <div className="w-full lg:w-[35%] h-[50vh] lg:h-full bg-[#111827] flex flex-col overflow-y-auto border-l border-[#1F293D] shadow-2xl">
+          {/* UAV Optical & Thermal HUD — always visible in Monitoring */}
+          <div className="shrink-0 p-3 border-b border-[#1F293D]" style={{ height: '300px', minHeight: '300px' }}>
+            <DroneCameraFeed
+              mode={monitoringCameraMode}
+              onModeChange={setMonitoringCameraMode}
+              detectionConfidence={state.sensorData.screechConfidence * 100}
+              targetLat={state.filteredLocation?.lat ?? 17.385044}
+              targetLng={state.filteredLocation?.lng ?? 78.486671}
+              altitudeM={48}
+              headingDeg={214}
+              signalDbm={-42}
+              distanceToTarget={120}
+              droneId="UAV-RESCUE-01"
+              isSimulated={!state.isConnected}
+              videoSrc={process.env.NEXT_PUBLIC_SURVEILLANCE_VIDEO ?? undefined}
+            />
+          </div>
+
           {/* Top Telemetry Metrics & Action Console */}
           <div className="flex-1 min-h-[360px]">
             <TelemetryHUD

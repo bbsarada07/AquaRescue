@@ -152,6 +152,7 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
 }) => {
   const [mapMode, setMapMode] = useState<'TACTICAL' | 'HYBRID' | 'THERMAL'>('TACTICAL');
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+  const [legendOpen, setLegendOpen] = useState(false);
 
   // Coordinate fallbacks
   const targetLat = filteredTarget?.lat ?? 17.385044;
@@ -488,8 +489,44 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
         )}
       </div>
 
-      {/* Recenter Button (Bottom Right Overlay) */}
-      <div className="absolute bottom-6 right-6 z-[1000] flex flex-col space-y-2 pointer-events-auto">
+      {/* Recenter + Legend Controls (Bottom Right Overlay) */}
+      <div className="absolute bottom-6 right-6 z-[1000] flex flex-col items-end space-y-2 pointer-events-auto">
+        {/* Legend panel (collapsible) */}
+        {legendOpen && (
+          <div className="bg-[#111827]/90 backdrop-blur border border-[#1F293D] rounded-lg p-2.5 font-mono text-[10px] text-gray-300 space-y-1.5 shadow-2xl">
+            <div className="font-bold text-gray-200 border-b border-[#1F293D] pb-1 mb-1">MAP LEGEND</div>
+            <div className="flex items-center space-x-2">
+              <span className="w-3 h-3 rounded-full bg-[#EF4444] inline-block animate-ping"></span>
+              <span>DISTRESS TARGET ({activePuckId})</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="w-3 h-3 bg-[#06B6D4] rotate-45 inline-block"></span>
+              <span>UAV DRONE VECTOR</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="w-3 h-3 rounded-full bg-[#F59E0B] inline-block"></span>
+              <span>AUTONOMOUS BUOY</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="w-3.5 h-0.5 bg-[#10B981] inline-block"></span>
+              <span>DRIFT INTERCEPT</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="w-3.5 h-2 bg-[#06B6D4]/30 border border-[#06B6D4] inline-block"></span>
+              <span>DRIFT IMPACT ZONE</span>
+            </div>
+          </div>
+        )}
+        {/* Legend toggle button */}
+        <button
+          onClick={() => setLegendOpen(o => !o)}
+          className="px-2.5 py-1.5 bg-[#111827]/90 hover:bg-[#06B6D4]/20 text-gray-400 hover:text-[#06B6D4] border border-[#1F293D] rounded-lg shadow-2xl transition-all flex items-center gap-1.5 font-mono text-[9px] font-bold"
+          title="Toggle Map Legend"
+        >
+          <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] animate-ping inline-block"></span>
+          LEGEND
+        </button>
+        {/* Recenter Button */}
         <button
           onClick={handleRecenter}
           className="p-3 bg-[#111827]/90 hover:bg-[#06B6D4]/20 text-[#06B6D4] border border-[#06B6D4]/40 rounded-lg shadow-2xl transition-all flex items-center justify-center group"
@@ -497,31 +534,6 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
         >
           <Locate className="w-5 h-5 group-hover:scale-110 transition-transform" />
         </button>
-      </div>
-
-      {/* Map Legend Overlay (Bottom Left Overlay) */}
-      <div className="absolute bottom-6 left-4 z-[1000] bg-[#111827]/85 backdrop-blur border border-[#1F293D] rounded-lg p-2.5 font-mono text-[10px] text-gray-300 space-y-1.5 shadow-2xl pointer-events-auto">
-        <div className="font-bold text-gray-200 border-b border-[#1F293D] pb-1 mb-1">MAP LEGEND (CARTO DARK)</div>
-        <div className="flex items-center space-x-2">
-          <span className="w-3 h-3 rounded-full bg-[#EF4444] inline-block animate-ping"></span>
-          <span>DISTRESS TARGET ({activePuckId})</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="w-3 h-3 bg-[#06B6D4] rotate-45 inline-block"></span>
-          <span>UAV DRONE VECTOR</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="w-3 h-3 rounded-full bg-[#F59E0B] inline-block"></span>
-          <span>AUTONOMOUS BUOY TRAJECTORY</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="w-3.5 h-0.5 bg-[#10B981] inline-block"></span>
-          <span>DRIFT COMPENSATED INTERCEPT</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="w-3.5 h-2 bg-[#06B6D4]/30 border border-[#06B6D4] inline-block"></span>
-          <span>DRIFT IMPACT ZONE</span>
-        </div>
       </div>
     </div>
   );

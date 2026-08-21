@@ -20,7 +20,6 @@ import {
 import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
 import { HydrodynamicVectorResult, RESPONDER_SPEEDS } from '@/lib/hydrodynamics';
 import { AudioWaveform } from './AudioWaveform';
-import { DroneCameraHUD } from './DroneCameraHUD';
 import { DispatchMatrixPanel } from './DispatchMatrixPanel';
 
 export interface TelemetryHUDProps {
@@ -515,16 +514,6 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
         )}
       </div>
 
-      {/* Simulated Drone Camera Vision HUD */}
-      <DroneCameraHUD
-        puckId={puckId}
-        activeDistress={activeDistress}
-        droneStatus={droneStatus}
-        droneLocation={droneLocation}
-        thermalDelta={sensorData?.thermalDelta}
-        screechConfidence={sensorData?.screechConfidence}
-        onManualPayloadDrop={onManualPayloadDrop}
-      />
 
       {/* Dynamic TTI Dispatch Engine & Hero UX Matrix Panel */}
       <DispatchMatrixPanel

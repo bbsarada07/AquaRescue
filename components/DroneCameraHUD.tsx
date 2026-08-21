@@ -12,7 +12,6 @@ import {
   Zap, 
   ShieldCheck, 
   CheckCircle2, 
-  Radio,
   Video
 } from 'lucide-react';
 import { runMLTargetAnalysis, TargetDetectionResult } from '@/lib/mlEngine';
@@ -116,77 +115,6 @@ export const DroneCameraHUD: React.FC<DroneCameraHUDProps> = ({
         </div>
       </div>
 
-      {/* Main Tactical Video Feed Frame */}
-      <div className={`relative w-full h-48 rounded border overflow-hidden transition-colors duration-500 ${
-        viewMode === 'THERMAL' 
-          ? 'bg-gradient-to-br from-[#0c0414] via-[#24061a] to-[#0d1624] border-[#F59E0B]/50'
-          : viewMode === 'IR'
-          ? 'bg-gradient-to-b from-[#021d0d] via-[#043317] to-[#011409] border-[#10B981]/50'
-          : 'bg-gradient-to-b from-[#060c18] via-[#09152a] to-[#040810] border-[#06B6D4]/50'
-      }`}>
-        {/* Scanlines visual overlay */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%)] bg-[size:100%_4px] pointer-events-none z-10" />
-
-        {/* Dynamic Simulated Background Water/Heat Pattern */}
-        {viewMode === 'THERMAL' && (
-          <div className="absolute inset-0 opacity-40 mix-blend-screen bg-[radial-gradient(circle_at_50%_50%,#f97316_0%,#dc2626_25%,#4c0519_60%,transparent_100%)] animate-pulse" />
-        )}
-        {viewMode === 'IR' && (
-          <div className="absolute inset-0 opacity-30 mix-blend-screen bg-[radial-gradient(circle_at_50%_50%,#22c55e_0%,#15803d_30%,transparent_80%)]" />
-        )}
-
-        {/* Tactical Crosshair Overlay */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
-          <div className="relative w-24 h-24 flex items-center justify-center">
-            {/* Center Reticle */}
-            <div className={`w-8 h-8 border rounded-full flex items-center justify-center ${
-              activeDistress 
-                ? viewMode === 'IR' ? 'border-[#22c55e]' : viewMode === 'THERMAL' ? 'border-[#f97316]' : 'border-[#EF4444] animate-ping'
-                : 'border-[#06B6D4]'
-            }`}>
-              <div className="w-1 h-1 rounded-full bg-white" />
-            </div>
-            {/* Crosshair Lines */}
-            <div className="absolute top-0 w-0.5 h-6 bg-white/40" />
-            <div className="absolute bottom-0 w-0.5 h-6 bg-white/40" />
-            <div className="absolute left-0 h-0.5 w-6 bg-white/40" />
-            <div className="absolute right-0 h-0.5 w-6 bg-white/40" />
-          </div>
-        </div>
-
-        {/* DRI Bounding Box Overlay over Simulated Target */}
-        {activeDistress && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-24 border-2 border-dashed border-[#EF4444] rounded bg-[#EF4444]/10 pointer-events-none z-20 flex flex-col justify-between p-1 animate-pulse">
-            <div className="flex justify-between items-center text-[8px] bg-[#EF4444] text-white px-1 py-0.5 font-bold rounded-sm">
-              <span>LOCK: {driResult.targetId}</span>
-              <span>{(driResult.confidenceScore * 100).toFixed(1)}%</span>
-            </div>
-            <div className="text-[8px] font-extrabold text-white bg-black/80 px-1 py-0.5 rounded text-center tracking-tight flex justify-between">
-              <span>{driResult.detectionType}</span>
-              <span className="text-[#00FF88] font-bold">STAGE: {driResult.driStage}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Corner HUD Telemetry Overlays */}
-        <div className="absolute top-2 left-2 z-20 text-[9px] font-mono space-y-0.5 bg-black/60 px-2 py-1 rounded border border-white/10">
-          <div className="text-gray-300">PITCH: +0.4° | ROLL: -0.1°</div>
-          <div className="text-[#06B6D4]">GEOREF DIST: {driResult.georeferenceDistanceMeters.toFixed(1)}m</div>
-        </div>
-
-        <div className="absolute top-2 right-2 z-20 text-[9px] font-mono space-y-0.5 bg-black/60 px-2 py-1 rounded border border-white/10 text-right">
-          <div className="text-gray-300">MODE: {viewMode}</div>
-          <div className={activeDistress ? 'text-[#EF4444] font-bold animate-pulse' : 'text-[#10B981]'}>
-            {activeDistress ? `DRI: ${driResult.driStage}` : 'SCANNING CORRIDOR'}
-          </div>
-        </div>
-
-        {/* Bottom Feed Status Banner */}
-        <div className="absolute bottom-2 left-2 right-2 z-20 flex items-center justify-between text-[9px] font-mono bg-black/75 px-2.5 py-1 rounded border border-white/10">
-          <span className="text-gray-300">PUCK: <strong className="text-white">{puckId || 'PUCK-ALPHA-04'}</strong></span>
-          <span className="text-gray-400">GPS: <strong className="text-[#00FF88]">{driResult.computedGPS.lat.toFixed(6)}, {driResult.computedGPS.lng.toFixed(6)}</strong></span>
-        </div>
-      </div>
 
       {/* DRI (Detection, Recognition, Identification) Status Banner */}
       <div className="bg-[#090D16] p-2.5 rounded border border-[#1F293D] flex items-center justify-between text-[10px]">
