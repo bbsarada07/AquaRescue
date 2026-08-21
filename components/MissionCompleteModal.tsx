@@ -56,108 +56,64 @@ export const MissionCompleteModal: React.FC<MissionCompleteModalProps> = ({
   const lngStr = filteredLocation?.lng ? filteredLocation.lng.toFixed(6) : '78.486671';
   const confPct = Math.round((screechConfidence || 0.96) * 100);
 
+  // Non-blocking toast — Monitoring is immediately visible behind this
   return (
-    <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-mission-slide-in select-none">
-      <div className="bg-[#090D16] border-2 border-[#10B981]/60 rounded-xl max-w-lg w-full p-6 shadow-[0_0_50px_rgba(16,185,129,0.2)] font-mono space-y-5 relative overflow-hidden">
+    <div className="fixed bottom-6 right-6 z-[5000] max-w-sm w-full select-none animate-mission-slide-in pointer-events-auto">
+      <div className="bg-[#090D16] border-2 border-[#10B981]/60 rounded-xl p-4 shadow-[0_0_40px_rgba(16,185,129,0.25)] font-mono space-y-3 relative overflow-hidden">
         {/* Glow backdrop */}
-        <div className="absolute top-0 right-0 w-48 h-48 bg-[#10B981]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-0 right-0 w-32 h-32 bg-[#10B981]/10 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-all"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Header */}
-        <div className="flex items-center space-x-3 border-b border-[#1F293D] pb-4">
-          <div className="p-3 bg-[#10B981]/15 border border-[#10B981]/40 rounded-xl text-[#10B981] shadow-lg">
-            <CheckCircle2 className="w-8 h-8 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-[10px] font-extrabold bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40 px-2 py-0.5 rounded uppercase tracking-wider">
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-[#10B981]/15 border border-[#10B981]/40 rounded-lg text-[#10B981]">
+              <CheckCircle2 className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <div className="text-[9px] font-extrabold bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40 px-1.5 py-0.5 rounded uppercase tracking-wider inline-block">
                 MISSION COMPLETE
-              </span>
-              <span className="text-[10px] text-gray-400 font-bold">{missionId || '#AR-042'}</span>
+              </div>
+              <div className="text-[10px] text-gray-400 font-bold mt-0.5">{missionId || '#AR-042'}</div>
             </div>
-            <h2 className="text-lg font-bold text-white tracking-wide mt-0.5">
-              INCIDENT RESOLVED & TARGET SECURED
-            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-all shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Compact metrics */}
+        <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
+            <div className="text-gray-500 text-[9px]">TARGET</div>
+            <div className="text-white font-bold truncate">{puckId || 'PUCK-ALPHA-04'}</div>
+          </div>
+          <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
+            <div className="text-gray-500 text-[9px]">DURATION</div>
+            <div className="text-[#F59E0B] font-bold">{durationFormatted}</div>
+          </div>
+          <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
+            <div className="text-gray-500 text-[9px]">CONFIDENCE</div>
+            <div className="text-[#10B981] font-bold">{confPct}%</div>
+          </div>
+          <div className="bg-[#111827] p-2 rounded border border-[#1F293D]">
+            <div className="text-gray-500 text-[9px]">GPS</div>
+            <div className="text-[#67e8f9] font-bold text-[9px] tabular-nums">{latStr.slice(0,9)}</div>
           </div>
         </div>
 
-        {/* Mission Metrics Summary Grid */}
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div className="bg-[#111827] p-3 rounded-lg border border-[#1F293D] space-y-1">
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3 text-[#06B6D4]" />
-              TARGET ID
-            </span>
-            <div className="text-white font-extrabold text-sm truncate">{puckId || 'PUCK-ALPHA-04'}</div>
-          </div>
-
-          <div className="bg-[#111827] p-3 rounded-lg border border-[#1F293D] space-y-1">
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <Clock className="w-3 h-3 text-[#F59E0B]" />
-              MISSION DURATION
-            </span>
-            <div className="text-[#F59E0B] font-extrabold text-sm">{durationFormatted}</div>
-          </div>
-
-          <div className="bg-[#111827] p-3 rounded-lg border border-[#1F293D] space-y-1">
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <Award className="w-3 h-3 text-[#10B981]" />
-              DETECTION CONFIDENCE
-            </span>
-            <div className="text-[#10B981] font-extrabold text-sm">{confPct}% Screech Match</div>
-          </div>
-
-          <div className="bg-[#111827] p-3 rounded-lg border border-[#1F293D] space-y-1">
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <MapPin className="w-3 h-3 text-[#EF4444]" />
-              FINAL COORDINATES
-            </span>
-            <div className="text-white font-mono text-[11px] font-bold">
-              {latStr}, {lngStr}
-            </div>
-          </div>
-        </div>
-
-        {/* Response Units Status Summary */}
-        <div className="bg-[#111827]/80 p-3 rounded-lg border border-[#1F293D] space-y-2">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-            <Cpu className="w-3 h-3 text-[#06B6D4]" />
-            DISPATCHED RESPONSE UNITS STATUS
-          </span>
-
-          <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
-            <div className="bg-[#090D16] p-2 rounded border border-[#06B6D4]/30 text-center">
-              <div className="text-gray-400 text-[9px]">UAV DRONE</div>
-              <div className="text-[#06B6D4] font-bold mt-0.5">SECURED</div>
-            </div>
-            <div className="bg-[#090D16] p-2 rounded border border-[#F59E0B]/30 text-center">
-              <div className="text-gray-400 text-[9px]">HYDRO BUOY</div>
-              <div className="text-[#F59E0B] font-bold mt-0.5">DEPLOYED</div>
-            </div>
-            <div className="bg-[#090D16] p-2 rounded border border-[#A78BFA]/30 text-center">
-              <div className="text-gray-400 text-[9px]">RESCUE TEAM</div>
-              <div className="text-[#A78BFA] font-bold mt-0.5">STANDBY</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer & Auto-dismiss */}
-        <div className="flex items-center justify-between border-t border-[#1F293D] pt-3 text-[11px]">
-          <span className="text-gray-500 text-[10px]">
-            Auto-returning to command dashboard in <span className="text-white font-bold">{countdown}s</span>...
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-[#1F293D] pt-2 text-[10px]">
+          <span className="text-gray-500">
+            Closing in <span className="text-white font-bold">{countdown}s</span>
           </span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-[#10B981] hover:bg-[#10B981]/90 text-black font-extrabold text-xs transition-all shadow-lg"
+            className="px-3 py-1 rounded-lg bg-[#10B981] hover:bg-[#10B981]/90 text-black font-extrabold text-[9px] transition-all"
           >
-            RETURN TO MONITORING
+            DISMISS
           </button>
         </div>
       </div>

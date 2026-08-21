@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Activity,
@@ -27,11 +27,18 @@ import { BriefingResponse } from '@/lib/gemini';
 import { LogEntry } from '@/lib/socket';
 import AIBriefing from './AIBriefing';
 import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
+<<<<<<< Updated upstream
 import { Sidebar } from './Sidebar';
 import { TelemetryRow } from './TelemetryRow';
 import { IncidentTimeline } from './IncidentTimeline';
 import DispatchMatrixPanel from './DispatchMatrixPanel';
 import WorkspacePanel from './WorkspacePanel';
+=======
+import { HumanDetectedPayload } from '@/lib/detectionEvents';
+import { Sidebar } from './Sidebar';
+import { TelemetryRow } from './TelemetryRow';
+import { IncidentTimeline } from './IncidentTimeline';
+>>>>>>> Stashed changes
 import {
   CRITICAL_PANEL_IDS,
   cloneLayoutMap,
@@ -184,6 +191,9 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [timeIst, setTimeIst] = useState('');
   const [timeUtc, setTimeUtc] = useState('');
+  // ── Human-detection alert banner ─────────────────────────────────────────
+  const [humanAlert, setHumanAlert] = useState<HumanDetectedPayload | null>(null);
+  const humanAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Mission Elapsed Timer ────────────────────────────────────────────────
   useEffect(() => {
@@ -282,11 +292,36 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   // Map / right-panel width split per workspace view
   const { mapWidthClass, rightWidthClass } = useMemo(() => {
     switch (activePreset) {
-      case 'DRONE':         return { mapWidthClass: 'w-[38%]', rightWidthClass: 'w-[62%]' };
-      case 'FULL_TACTICAL': return { mapWidthClass: 'w-[50%]', rightWidthClass: 'w-[50%]' };
+      case 'DRONE':         return { mapWidthClass: 'w-[42%]', rightWidthClass: 'w-[58%]' };
+      case 'FULL_TACTICAL': return { mapWidthClass: 'w-[58%]', rightWidthClass: 'w-[42%]' };
       default:              return { mapWidthClass: 'w-[60%]', rightWidthClass: 'w-[40%]' };
     }
   }, [activePreset]);
+
+  // ── Human Detected Callback ───────────────────────────────────────────────
+  const handleHumanDetected = useCallback((payload: HumanDetectedPayload) => {
+    // 1. Show Priority-1 banner (auto-dismiss in 8s)
+    setHumanAlert(payload);
+    if (humanAlertTimerRef.current) clearTimeout(humanAlertTimerRef.current);
+    humanAlertTimerRef.current = setTimeout(() => setHumanAlert(null), 8000);
+
+    // 2. Push ALERT log entry (visible in Incident Timeline)
+    // We construct a synthetic log entry via the eventLogs mechanism.
+    // Because addLog lives in useSocketTelemetry (page-level), we fire a
+    // custom window event so page.tsx can pick it up if needed.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('aquarescue:human-detected', { detail: payload })
+      );
+    }
+  }, []);
+
+  // Cleanup banner timer on unmount
+  useEffect(() => {
+    return () => {
+      if (humanAlertTimerRef.current) clearTimeout(humanAlertTimerRef.current);
+    };
+  }, []);
 
   // ── Callbacks ────────────────────────────────────────────────────────────
   const updatePanel = useCallback((id: PanelId, patch: Partial<PanelLayoutMap[PanelId]>) => {
@@ -327,6 +362,11 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   }, [targetLat, targetLng]);
 
   // ── Panel Content Definitions ─────────────────────────────────────────────
+<<<<<<< Updated upstream
+=======
+  // Defined as variables (not in panelContent map) so they're clearly readable
+  // and used directly in the per-view layout functions below.
+>>>>>>> Stashed changes
 
   const activeTargetContent = (
     <div className="space-y-2.5 text-xs">
@@ -507,6 +547,10 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
     droneId: 'UAV-RESCUE-01',
     isSimulated: true,
     onManualPayloadDrop: onManualPayloadDrop,
+    // Video-backed camera props — set videoSrc to the path of your surveillance clip.
+    // If undefined, the component falls back to the canvas simulation.
+    videoSrc: process.env.NEXT_PUBLIC_SURVEILLANCE_VIDEO ?? undefined,
+    onHumanDetected: handleHumanDetected,
   } as const;
 
   const panelContent: Record<PanelId, React.ReactNode> = {
@@ -699,7 +743,7 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
           <div className="h-full flex flex-col gap-3 p-3 overflow-y-auto">
             {/* Drone camera at top, fixed height */}
             {panels['drone-camera'].visible && (
-              <div className="shrink-0" style={{ height: '460px', minHeight: '460px' }}>
+              <div className="shrink-0" style={{ height: '260px', minHeight: '260px' }}>
                 <DroneCameraFeed {...droneCameraProps} />
               </div>
             )}
@@ -771,6 +815,43 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-[4000] bg-[#090D16] text-[#F3F4F6] font-mono flex flex-col overflow-hidden animate-mission-slide-in emergency-border-pulse">
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          PRIORITY-1 HUMAN TARGET DETECTED BANNER (video detection pipeline)
+      ═══════════════════════════════════════════════════════════════════ */}
+      {humanAlert && (
+        <div
+          className="absolute top-14 left-1/2 -translate-x-1/2 z-[5000] flex items-center gap-3 px-5 py-3 rounded-xl border-2 border-[#10B981] shadow-[0_0_40px_rgba(16,185,129,0.6)] font-mono select-none"
+          style={{
+            background: 'linear-gradient(135deg, #020f0a 0%, #05231a 100%)',
+            animation: 'pulse 1.5s ease-in-out infinite',
+          }}
+        >
+          <span className="w-3 h-3 rounded-full bg-[#10B981] animate-ping shrink-0" />
+          <div>
+            <div className="text-[#10B981] font-extrabold text-sm tracking-widest uppercase">
+              ⚠ PRIORITY 1 — HUMAN TARGET DETECTED
+            </div>
+            <div className="text-[11px] text-gray-300 mt-0.5">
+              <span className="font-bold text-white">{humanAlert.label}</span>
+              {' · '}
+              <span className="text-[#10B981]">{humanAlert.confidence.toFixed(1)}% confidence</span>
+              {' · '}
+              GPS <span className="text-[#67e8f9] tabular-nums">
+                {humanAlert.lat.toFixed(6)}, {humanAlert.lng.toFixed(6)}
+              </span>
+              {' · '}
+              <span className="text-gray-400">{new Date(humanAlert.timestamp).toLocaleTimeString('en-US', { hour12: false })}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setHumanAlert(null)}
+            className="ml-2 p-1 text-gray-400 hover:text-white rounded hover:bg-white/10 transition"
+          >
+            <Video className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════════
           A. GLOBAL HEADER

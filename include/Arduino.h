@@ -32,6 +32,10 @@ inline long random(long min, long max) { return min + (rand() % (max - min)); }
 
 class String : public std::string {
 public:
+    using std::string::string;
+    using std::string::operator+=;
+    using std::string::operator=;
+
     String() : std::string() {}
     String(const char* s) : std::string(s ? s : "") {}
     String(const std::string& s) : std::string(s) {}
@@ -46,6 +50,19 @@ public:
     }
     String(long val, int base = 10) : String((unsigned long)val, base) {}
     String(int val, int base = 10) : String((unsigned long)val, base) {}
+
+    String& operator+=(const std::string& s) {
+        std::string::operator+=(s);
+        return *this;
+    }
+    String& operator+=(const char* s) {
+        if (s) std::string::operator+=(s);
+        return *this;
+    }
+    String& operator+=(char c) {
+        std::string::operator+=(c);
+        return *this;
+    }
 };
 
 #endif // ARDUINO_H

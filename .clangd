@@ -6,7 +6,4 @@ CompileFlags:
     - "-DARDUINO=10800"
     - "-DESP32"
     - "-Iinclude"
-    - "-include"
-    - "include/Arduino.h"
   Compiler: g++
-

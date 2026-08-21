@@ -1,7 +1,7 @@
 #ifndef PUBSUBCLIENT_H
 #define PUBSUBCLIENT_H
 
-#include "Arduino.h"
+#include <stdint.h>
 #include "WiFi.h"
 
 class PubSubClient {

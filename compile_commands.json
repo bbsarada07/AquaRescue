@@ -1,8 +1,27 @@
 [
   {
     "directory": "c:/Users/bbsar/Desktop/AquqRescue",
-    "command": "g++ -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -Iinclude -include include/Arduino.h -c src/sketch.ino -o src/sketch.o",
+    "command": "g++ -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -Iinclude -c src/sketch.ino -o src/sketch.o",
     "file": "src/sketch.ino"
+  },
+  {
+    "directory": "c:/Users/bbsar/Desktop/AquqRescue",
+    "command": "g++ -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -Iinclude -c include/Arduino.h -o include/Arduino.o",
+    "file": "include/Arduino.h"
+  },
+  {
+    "directory": "c:/Users/bbsar/Desktop/AquqRescue",
+    "command": "g++ -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -Iinclude -c include/WiFi.h -o include/WiFi.o",
+    "file": "include/WiFi.h"
+  },
+  {
+    "directory": "c:/Users/bbsar/Desktop/AquqRescue",
+    "command": "g++ -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -Iinclude -c include/PubSubClient.h -o include/PubSubClient.o",
+    "file": "include/PubSubClient.h"
+  },
+  {
+    "directory": "c:/Users/bbsar/Desktop/AquqRescue",
+    "command": "g++ -xc++ -std=c++17 -DARDUINO=10800 -DESP32 -Iinclude -c include/ArduinoJson.h -o include/ArduinoJson.o",
+    "file": "include/ArduinoJson.h"
   }
 ]
-
