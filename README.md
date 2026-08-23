@@ -16,6 +16,39 @@ The video demonstrates the end-to-end operational pipeline:
 4. Autonomous Motorized Hydro-Buoy dispatch via 1-Click Command UI.
 
 ---
+## 🛠 Hardware Simulation & Firmware Setup
+
+To make testing accessible without physical hardware components, this repository includes a complete **Wokwi / ESP32 Hardware Simulation Bundle** containing microcontrollers, LoRa mesh node configurations, acoustic sensor triggers, and motor driver logic.
+
+---
+
+### 📦 Simulation Package Download
+
+* **File Name:** `AquaRescue_Hardware_Simulation.zip`
+* **Contents:**
+  * `sketch.ino`: Core ESP32 firmware with HiveMQ MQTT integration & telemetry broadcasting.
+  * `diagram.json`: Wokwi hardware wiring diagram (ESP32, INMP441 MEMS Mic, L298N Motor Driver, LoRa SX1278).
+  * `wokwi.toml`: IDE environment configuration for offline / VS Code simulation.
+  * `README_SIMULATION.md`: Step-by-step pin mapping and setup guide.
+
+👉 **[Download Hardware Simulation Zip File] ** *(or extract `AquaRescue_Hardware_Simulation.zip` from the project root)*
+
+---
+
+### ⚡ How to Run the Simulation Locally
+
+1. **Option 1: Using Wokwi Web Simulator**
+   * Go to [Wokwi.com](https://wokwi.com).
+   * Upload `sketch.ino` and `diagram.json` from the zip archive.
+   * Click **Play** to simulate real-time telemetry streaming directly to `aquarescue/telemetry/#`.
+
+2. **Option 2: Running via VS Code (Wokwi Extension)**
+   * Install the **Wokwi Simulator** extension in VS Code / Antigravity IDE.
+   * Extract the `.zip` contents into your workspace root.
+   * Press `F1` and select **Wokwi: Start Simulator**.
+   * Open `http://localhost:5000` to watch the simulated sensor data reflect live on the command dashboard.
+
+
 
 ## 📌 Executive Summary
 
