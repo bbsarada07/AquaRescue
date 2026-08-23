@@ -31,7 +31,7 @@ To make testing accessible without physical hardware components, this repository
   * `wokwi.toml`: IDE environment configuration for offline / VS Code simulation.
   * `README_SIMULATION.md`: Step-by-step pin mapping and setup guide.
 
-👉 **[Download Hardware Simulation Zip File] ** *(or extract `AquaRescue_Hardware_Simulation.zip` from the project root)*
+👉 **[Download Hardware Simulation Zip File]https://github.com/bbsarada07/AquaRescue/releases/download/v1.0.0/AquaRescue_Simulation_Hardware.zip ** *(or extract `AquaRescue_Hardware_Simulation.zip` from the project root)*
 
 ---
 
