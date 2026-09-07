@@ -77,7 +77,7 @@ export interface AquaRescueState {
 }
 
 // Environment bindings & dynamic connection URL
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_SOCKET_URL || "wss://aquarescue-backend.onrender.com";
+export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
 export const SOCKET_URL = WS_URL;
 
 // Single unified Socket.io client instance
