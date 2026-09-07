@@ -141,3 +141,8 @@ body {
 @keyframes telemetryFill {
   from { width: 0; }
 }
+
+/* Thermal heatmap filter for keyless Leaflet map tiles */
+.leaflet-thermal-tiles {
+  filter: sepia(100%) hue-rotate(300deg) saturate(350%) contrast(140%) brightness(0.85) !important;
+}

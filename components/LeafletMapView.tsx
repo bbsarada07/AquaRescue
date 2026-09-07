@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMap, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
-import { Compass, Locate, Sun, Flame } from 'lucide-react';
+import { Compass, Locate, Sun, Flame, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
 import { HydrodynamicVectorResult, calculatePredictiveDriftZone, offsetCoordinate } from '@/lib/hydrodynamics';
 
@@ -52,6 +52,25 @@ function MapFlyTo({ center }: { center: [number, number] }) {
   }, [center, map]);
   return null;
 }
+
+// Sub-component to dynamically invalidate map size on rail expand/collapse
+function MapResizeHandler({ railCollapsed }: { railCollapsed: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    map.invalidateSize();
+    const t1 = setTimeout(() => map.invalidateSize(), 100);
+    const t2 = setTimeout(() => map.invalidateSize(), 320);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [railCollapsed, map]);
+  return null;
+}
+
+// Keyless fallback tile data URL: dark navy #0a0e14 with low-opacity grid lines
+const FALLBACK_TILE_DATA_URL =
+  "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'><rect width='256' height='256' fill='%230a0e14'/><path d='M0 0h256M0 64h256M0 128h256M0 192h256M0 0v256M64 0v256M128 0v256M192 0v256' stroke='%2306b6d4' stroke-width='1' stroke-opacity='0.08'/></svg>";
 
 // Leaflet DivIcons using inline HTML and Tailwind styling to bypass static image loading
 const createTargetIcon = (puckId: string) =>
@@ -153,6 +172,7 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
   const [mapMode, setMapMode] = useState<'TACTICAL' | 'HYBRID' | 'THERMAL'>('TACTICAL');
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   // Coordinate fallbacks
   const targetLat = filteredTarget?.lat ?? 17.385044;
@@ -173,13 +193,29 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
 
   const activePuckId = puckId || 'PUCK-ALPHA-04';
 
-  // TileLayer Matrix URL based on map mode
-  const tileUrl = useMemo(() => {
-    if (mapMode === 'HYBRID') {
-      return 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  // TileLayer Configuration based on map mode (all keyless & free)
+  const tileConfig = useMemo(() => {
+    switch (mapMode) {
+      case 'HYBRID':
+        return {
+          url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          subdomains: ['a', 'b', 'c'],
+          className: '',
+        };
+      case 'THERMAL':
+        return {
+          url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+          subdomains: ['a', 'b', 'c', 'd'],
+          className: 'leaflet-thermal-tiles',
+        };
+      case 'TACTICAL':
+      default:
+        return {
+          url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+          subdomains: ['a', 'b', 'c', 'd'],
+          className: '',
+        };
     }
-    // CartoDB Dark Matter for TACTICAL & THERMAL
-    return 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
   }, [mapMode]);
 
   // Recenter trigger
@@ -256,284 +292,356 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
   );
 
   return (
-    <div className="relative w-full h-full bg-[#090D16] overflow-hidden select-none border-r border-[#1F293D] z-0">
-      {/* 100% Free, Cardless Leaflet Map Container */}
-      <MapContainer
-        center={centerPos}
-        zoom={17}
-        zoomControl={false}
-        scrollWheelZoom={true}
-        style={{ width: '100%', height: '100%', background: '#090D16' }}
-        ref={setMapInstance}
+    <div className="relative w-full h-full bg-[#0a0e14] flex flex-row overflow-hidden select-none border-r border-[#1F293D] z-0">
+      {/* ── COLLAPSIBLE LEFT-SIDE NAVIGATION & DRIFT RAIL ──────────────── */}
+      <aside
+        className={`relative z-20 h-full bg-[#0B1220] border-r border-[#1F293D] transition-all duration-300 ease-in-out flex flex-col shrink-0 overflow-hidden shadow-2xl ${
+          railCollapsed ? 'w-0 border-r-0' : 'w-72 lg:w-80'
+        }`}
       >
-        <TileLayer
-          url={tileUrl}
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          maxZoom={19}
-        />
-
-        {/* Dynamic FlyTo camera trigger */}
-        {activeDistress && <MapFlyTo center={centerPos} />}
-
-        {/* Trajectory Polylines */}
-        {dronePolyline.length > 1 && (
-          <Polyline
-            positions={dronePolyline}
-            pathOptions={{ color: '#06B6D4', weight: 3, opacity: 0.85, dashArray: '6, 6' }}
-          />
-        )}
-        {activeDistress && (
-          <Polyline
-            positions={droneToTargetLine}
-            pathOptions={{ color: '#38BDF8', weight: 2.2, opacity: 0.75, className: 'route-air-line' }}
-          />
-        )}
-
-        {buoyPolyline.length > 1 && (
-          <Polyline
-            positions={buoyPolyline}
-            pathOptions={{ color: '#F59E0B', weight: 3, opacity: 0.85 }}
-          />
-        )}
-        {activeDistress && (
-          <Polyline
-            positions={buoyToTargetLine}
-            pathOptions={{ color: '#F59E0B', weight: 2.4, opacity: 0.85, className: 'route-water-line' }}
-          />
-        )}
-
-        {/* Direct Hydrodynamic Intercept Vector Line */}
-        {hydrodynamics && activeDistress && (
-          <Polyline
-            positions={interceptPolyline}
-            pathOptions={{ color: '#10B981', weight: 2.5, opacity: 0.9, dashArray: '4, 4' }}
-          />
-        )}
-
-        {/* Predictive Drift Impact Zone (Cyan Corridor) */}
-        {activeDistress && driftZonePoints.length > 0 && (
-          <Polygon
-            positions={driftZonePoints}
-            pathOptions={{
-              color: '#06B6D4',
-              fillColor: '#06B6D4',
-              weight: 1.5,
-              className: 'drift-corridor-polygon'
-            }}
-          />
-        )}
-
-        {/* Predictive Drift Flow Centerline */}
-        {activeDistress && centerlinePoints.length > 0 && (
-          <Polyline
-            positions={centerlinePoints}
-            pathOptions={{
-              color: '#06B6D4',
-              weight: 2,
-              className: 'drift-corridor-centerline'
-            }}
-          />
-        )}
-
-        {/* Raw GPS Jitter Point */}
-        {activeDistress && rawTarget && (
-          <Marker position={[rawLat, rawLng]} icon={createRawGpsIcon()}>
-            <Tooltip direction="bottom" opacity={0.9} permanent={false}>
-              <span className="font-mono text-xs">RAW NOISY GPS</span>
-            </Tooltip>
-          </Marker>
-        )}
-
-        {/* Distress Target Puck Marker */}
-        {activeDistress && (
-          <Marker position={centerPos} icon={createTargetIcon(activePuckId)}>
-            <Tooltip direction="top" opacity={0.95} permanent={false}>
-              <span className="font-mono text-xs font-bold text-red-500">
-                DISTRESS TARGET: {activePuckId}
-              </span>
-            </Tooltip>
-          </Marker>
-        )}
-
-        {/* UAV Drone Marker */}
-        <Marker position={[droneLat, droneLng]} icon={createDroneIcon()}>
-          <Tooltip direction="bottom" opacity={0.95} permanent={false}>
-            <span className="font-mono text-xs text-cyan-400">UAV-RESCUE-01</span>
-          </Tooltip>
-        </Marker>
-
-        {/* Autonomous Rescue Buoy Marker */}
-        <Marker position={[buoyLat, buoyLng]} icon={createBuoyIcon()}>
-          <Tooltip direction="bottom" opacity={0.95} permanent={false}>
-            <span className="font-mono text-xs text-amber-400">BUOY-HYDRO-02</span>
-          </Tooltip>
-        </Marker>
-
-        {/* Responder Path Trail */}
-        {responderPolyline.length > 1 && responderStatus !== 'STANDBY' && (
-          <Polyline
-            positions={responderPolyline}
-            pathOptions={{ color: '#A78BFA', weight: 2.5, opacity: 0.75, dashArray: '4, 4' }}
-          />
-        )}
-
-        {/* Responder → Target ETA Connection Line */}
-        {responderToTargetLine.length > 0 && (
-          <Polyline
-            positions={responderToTargetLine}
-            pathOptions={{ color: '#A78BFA', weight: 1.8, opacity: 0.75, className: 'route-team-line' }}
-          />
-        )}
-
-        {/* Human Rescue Team Marker */}
-        <Marker position={[responderLat, responderLng]} icon={createResponderIcon()}>
-          <Tooltip direction="bottom" opacity={0.95} permanent={false}>
-            <span className="font-mono text-xs" style={{ color: '#A78BFA' }}>RESCUE-TEAM-01</span>
-          </Tooltip>
-        </Marker>
-      </MapContainer>
-
-      {/* Map Mode Controls (Top Left Overlay) */}
-      <div className="absolute top-4 left-4 z-[1000] flex flex-col space-y-2 pointer-events-auto">
-        <div className="bg-[#111827]/90 backdrop-blur border border-[#1F293D] rounded-lg p-2 flex items-center space-x-2 shadow-2xl">
-          <button
-            onClick={() => setMapMode('TACTICAL')}
-            className={`px-2.5 py-1 text-xs font-mono rounded flex items-center space-x-1 font-semibold transition-all ${
-              mapMode === 'TACTICAL'
-                ? 'bg-[#06B6D4]/20 border border-[#06B6D4] text-[#06B6D4]'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            <Compass className="w-3.5 h-3.5" />
-            <span>TACTICAL DARK</span>
-          </button>
-
-          <button
-            onClick={() => setMapMode('HYBRID')}
-            className={`px-2.5 py-1 text-xs font-mono rounded flex items-center space-x-1 font-semibold transition-all ${
-              mapMode === 'HYBRID'
-                ? 'bg-[#06B6D4]/20 border border-[#06B6D4] text-[#06B6D4]'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            <Sun className="w-3.5 h-3.5" />
-            <span>STREETS</span>
-          </button>
-
-          <button
-            onClick={() => setMapMode('THERMAL')}
-            className={`px-2.5 py-1 text-xs font-mono rounded flex items-center space-x-1 font-semibold transition-all ${
-              mapMode === 'THERMAL'
-                ? 'bg-[#EF4444]/20 border border-[#EF4444] text-[#EF4444]'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5" />
-            <span>THERMAL HEATMAP</span>
-          </button>
-        </div>
-
-        {/* Dynamic Coordinates HUD Box */}
-        <div className="bg-[#111827]/90 backdrop-blur border border-[#1F293D] rounded-lg p-2.5 font-mono text-[11px] text-gray-300 space-y-1 shadow-2xl max-w-xs">
-          <div className="flex justify-between items-center border-b border-[#1F293D] pb-1">
-            <span className="text-[#06B6D4] font-bold flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-[#06B6D4] animate-ping"></span>
-              KALMAN 2D SMOOTHED
+        <div className="w-72 lg:w-80 h-full flex flex-col p-3 space-y-3 overflow-y-auto">
+          {/* Rail Header with Title and Collapse Toggle */}
+          <div className="flex items-center justify-between border-b border-[#1F293D] pb-2 shrink-0">
+            <span className="font-mono text-xs font-bold text-gray-200 flex items-center gap-1.5">
+              <Compass className="w-3.5 h-3.5 text-[#06B6D4]" />
+              MAP & SENSOR RAIL
             </span>
-            <span className="text-gray-400">SUB-METER</span>
+            <button
+              onClick={() => setRailCollapsed(true)}
+              className="p-1 rounded text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+              title="Collapse Rail (Full Width Map)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">LAT:</span>
-            <span className="text-white font-bold">{targetLat.toFixed(6)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">LNG:</span>
-            <span className="text-white font-bold">{targetLng.toFixed(6)}</span>
-          </div>
-          <div className="flex justify-between text-[10px]">
-            <span className="text-gray-500">NOISE DELTA:</span>
-            <span className="text-[#F59E0B] font-semibold">{noiseDelta}m (FILTERED)</span>
-          </div>
-        </div>
 
-        {/* Predictive Drift Control & HUD Overlay */}
-        {activeDistress && sensorData && (
-          <div className="bg-[#111827]/90 backdrop-blur border border-[#06B6D4]/40 rounded-lg p-2.5 font-mono text-[11px] text-gray-300 space-y-1.5 shadow-2xl max-w-xs">
-            <div className="flex justify-between items-center border-b border-[#1F293D] pb-1">
-              <span className="text-[#06B6D4] font-bold flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-[#06B6D4] animate-pulse"></span>
-                DRIFT PREDICTION · {predictionWindow} SEC
+          {/* Map Mode Controls */}
+          <div className="bg-[#111827] border border-[#1F293D] rounded-lg p-1.5 flex items-center justify-between gap-1 shadow-md shrink-0">
+            <button
+              onClick={() => setMapMode('TACTICAL')}
+              className={`flex-1 py-1 text-[10px] font-mono rounded flex items-center justify-center space-x-1 font-semibold transition-all ${
+                mapMode === 'TACTICAL'
+                  ? 'bg-[#06B6D4]/20 border border-[#06B6D4] text-[#06B6D4]'
+                  : 'text-gray-400 hover:text-white border border-transparent'
+              }`}
+            >
+              <Compass className="w-3 h-3" />
+              <span>TACTICAL</span>
+            </button>
+
+            <button
+              onClick={() => setMapMode('HYBRID')}
+              className={`flex-1 py-1 text-[10px] font-mono rounded flex items-center justify-center space-x-1 font-semibold transition-all ${
+                mapMode === 'HYBRID'
+                  ? 'bg-[#06B6D4]/20 border border-[#06B6D4] text-[#06B6D4]'
+                  : 'text-gray-400 hover:text-white border border-transparent'
+              }`}
+            >
+              <Sun className="w-3 h-3" />
+              <span>STREETS</span>
+            </button>
+
+            <button
+              onClick={() => setMapMode('THERMAL')}
+              className={`flex-1 py-1 text-[10px] font-mono rounded flex items-center justify-center space-x-1 font-semibold transition-all ${
+                mapMode === 'THERMAL'
+                  ? 'bg-[#EF4444]/20 border border-[#EF4444] text-[#EF4444]'
+                  : 'text-gray-400 hover:text-white border border-transparent'
+              }`}
+            >
+              <Flame className="w-3 h-3" />
+              <span>THERMAL</span>
+            </button>
+          </div>
+
+          {/* Dynamic Coordinates HUD Box — Kalman 2D Smoothed */}
+          <div className="bg-[#111827] border border-[#1F293D] rounded-lg p-3 font-mono text-[11px] text-gray-300 space-y-1.5 shadow-md shrink-0">
+            <div className="flex justify-between items-center border-b border-[#1F293D] pb-1.5">
+              <span className="text-[#06B6D4] font-bold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#06B6D4] animate-ping" />
+                KALMAN 2D SMOOTHED
               </span>
+              <span className="text-gray-400 text-[10px] bg-[#06B6D4]/10 border border-[#06B6D4]/30 px-1.5 py-0.5 rounded text-[#06B6D4]">SUB-METER</span>
             </div>
-            
-            {/* Window selector */}
-            <div className="flex items-center justify-between gap-4 pt-0.5">
-              <span className="text-gray-400 text-[10px]">TIME WINDOW:</span>
-              <div className="flex space-x-1">
-                {([15, 30, 45, 60] as const).map(sec => (
-                  <button
-                    key={sec}
-                    onClick={() => setPredictionWindow && setPredictionWindow(sec)}
-                    className={`px-1.5 py-0.5 text-[9px] font-mono rounded font-bold transition-all border ${
-                      predictionWindow === sec
-                        ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4]'
-                        : 'bg-gray-800/50 border-gray-700 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {sec}s
-                  </button>
-                ))}
+            <div className="flex justify-between pt-0.5">
+              <span className="text-gray-400">LAT:</span>
+              <span className="text-white font-bold tabular-nums">{targetLat.toFixed(6)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400">LNG:</span>
+              <span className="text-white font-bold tabular-nums">{targetLng.toFixed(6)}</span>
+            </div>
+            <div className="flex justify-between text-[10px] pt-1 border-t border-[#1F293D]/60">
+              <span className="text-gray-500">NOISE DELTA:</span>
+              <span className="text-[#F59E0B] font-semibold">{noiseDelta.toFixed(1)}m (FILTERED)</span>
+            </div>
+          </div>
+
+          {/* Predictive Drift Control & HUD */}
+          {activeDistress && sensorData && (
+            <div className="bg-[#111827] border border-[#06B6D4]/40 rounded-lg p-3 font-mono text-[11px] text-gray-300 space-y-2 shadow-md shrink-0">
+              <div className="flex justify-between items-center border-b border-[#1F293D] pb-1.5">
+                <span className="text-[#06B6D4] font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#06B6D4] animate-pulse" />
+                  PREDICTIVE DRIFT
+                </span>
+                <span className="text-gray-400 text-[10px]">T+{predictionWindow}s</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px] pt-0.5">
+                <div>
+                  <span className="text-gray-500 block">CURRENT VEL</span>
+                  <span className="text-white font-bold">{sensorData.waterVelocity.toFixed(2)} m/s</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">DRIFT HDG</span>
+                  <span className="text-white font-bold">{sensorData.driftHeading.toFixed(0)}°</span>
+                </div>
+              </div>
+
+              {setPredictionWindow && (
+                <div className="pt-2 border-t border-[#1F293D]/60">
+                  <div className="text-[10px] text-gray-400 mb-1.5">DRIFT WINDOW:</div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {([15, 30, 45, 60] as const).map(sec => (
+                      <button
+                        key={sec}
+                        onClick={() => setPredictionWindow(sec)}
+                        className={`py-1 text-[10px] font-mono rounded font-semibold border transition-all ${
+                          predictionWindow === sec
+                            ? 'bg-[#06B6D4] text-black border-[#06B6D4]'
+                            : 'bg-[#1F293D]/50 text-gray-400 hover:text-white border-transparent'
+                        }`}
+                      >
+                        +{sec}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* ── MAP CONTAINER VIEW AREA ────────────────────────────────────── */}
+      <div className="flex-1 min-w-0 h-full relative overflow-hidden">
+        {/* Floating Expand Rail Button (visible only when rail is collapsed) */}
+        {railCollapsed && (
+          <button
+            onClick={() => setRailCollapsed(false)}
+            className="absolute top-4 left-4 z-[1000] p-2 bg-[#0B1220]/90 hover:bg-[#06B6D4]/20 border border-[#1F293D] hover:border-[#06B6D4] text-gray-300 hover:text-white rounded-lg shadow-2xl transition-all flex items-center gap-1.5 font-mono text-[10px] font-bold"
+            title="Expand Map & Sensor Rail"
+          >
+            <ChevronRight className="w-4 h-4 text-[#06B6D4]" />
+            <span>PANELS</span>
+          </button>
+        )}
+
+        <MapContainer
+          center={centerPos}
+          zoom={17}
+          scrollWheelZoom={true}
+          zoomControl={false}
+          className="w-full h-full"
+          style={{
+            width: '100%',
+            height: '100%',
+            backgroundColor: '#0a0e14',
+            backgroundImage:
+              'linear-gradient(to right, rgba(6, 182, 212, 0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(6, 182, 212, 0.04) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+          }}
+          ref={setMapInstance}
+        >
+          {/* Base Map Tile Layer with Free CARTO Dark Matter, OSM & Thermal simulated overlay */}
+          <TileLayer
+            key={mapMode}
+            url={tileConfig.url}
+            subdomains={tileConfig.subdomains}
+            className={tileConfig.className}
+            errorTileUrl={FALLBACK_TILE_DATA_URL}
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            maxZoom={19}
+          />
+
+          {/* Dynamic map controllers */}
+          <MapFlyTo center={centerPos} />
+          <MapResizeHandler railCollapsed={railCollapsed} />
+
+          {/* Drone Path Polyline */}
+          {dronePolyline.length > 1 && (
+            <Polyline
+              positions={dronePolyline}
+              pathOptions={{ color: '#06B6D4', weight: 2.5, opacity: 0.7, dashArray: '6, 6' }}
+            />
+          )}
+
+          {/* Buoy Path Polyline */}
+          {buoyPolyline.length > 1 && (
+            <Polyline
+              positions={buoyPolyline}
+              pathOptions={{ color: '#F59E0B', weight: 2, opacity: 0.6, dashArray: '3, 6' }}
+            />
+          )}
+
+          {/* Drone Vector Direct Intercept Polyline */}
+          {activeDistress && droneStatus !== 'STANDBY' && (
+            <Polyline
+              positions={droneToTargetLine}
+              pathOptions={{ color: '#06B6D4', weight: 2.5, opacity: 0.9, className: 'route-drone-line' }}
+            />
+          )}
+
+          {/* Buoy Direct Intercept Polyline */}
+          {activeDistress && (
+            <Polyline
+              positions={buoyToTargetLine}
+              pathOptions={{ color: '#F59E0B', weight: 2.4, opacity: 0.85, className: 'route-water-line' }}
+            />
+          )}
+
+          {/* Direct Hydrodynamic Intercept Vector Line */}
+          {activeDistress && (
+            <Polyline
+              positions={interceptPolyline}
+              pathOptions={{
+                color: '#10B981',
+                weight: 2,
+                dashArray: '4, 6',
+                opacity: 0.85,
+              }}
+            />
+          )}
+
+          {/* Predictive Drift Impact Zone (Cyan Corridor) */}
+          {activeDistress && driftZonePoints.length > 0 && (
+            <Polygon
+              positions={driftZonePoints}
+              pathOptions={{
+                color: '#06B6D4',
+                fillColor: '#06B6D4',
+                weight: 1.5,
+                className: 'drift-corridor-polygon',
+              }}
+            />
+          )}
+
+          {/* Predictive Drift Flow Centerline */}
+          {activeDistress && centerlinePoints.length > 0 && (
+            <Polyline
+              positions={centerlinePoints}
+              pathOptions={{
+                color: '#06B6D4',
+                weight: 2,
+                className: 'drift-corridor-centerline',
+              }}
+            />
+          )}
+
+          {/* Raw GPS Jitter Point */}
+          {activeDistress && rawTarget && (
+            <Marker position={[rawLat, rawLng]} icon={createRawGpsIcon()}>
+              <Tooltip direction="bottom" opacity={0.9} permanent={false}>
+                <span className="font-mono text-xs">RAW NOISY GPS</span>
+              </Tooltip>
+            </Marker>
+          )}
+
+          {/* Distress Target Puck Marker */}
+          {activeDistress && (
+            <Marker position={centerPos} icon={createTargetIcon(activePuckId)}>
+              <Tooltip direction="top" opacity={0.95} permanent={false}>
+                <span className="font-mono text-xs font-bold text-red-500">
+                  DISTRESS TARGET: {activePuckId}
+                </span>
+              </Tooltip>
+            </Marker>
+          )}
+
+          {/* UAV Drone Marker */}
+          <Marker position={[droneLat, droneLng]} icon={createDroneIcon()}>
+            <Tooltip direction="bottom" opacity={0.95} permanent={false}>
+              <span className="font-mono text-xs text-cyan-400">UAV-RESCUE-01</span>
+            </Tooltip>
+          </Marker>
+
+          {/* Autonomous Rescue Buoy Marker */}
+          <Marker position={[buoyLat, buoyLng]} icon={createBuoyIcon()}>
+            <Tooltip direction="bottom" opacity={0.95} permanent={false}>
+              <span className="font-mono text-xs text-amber-400">BUOY-HYDRO-02</span>
+            </Tooltip>
+          </Marker>
+
+          {/* Responder Path Trail */}
+          {responderPolyline.length > 1 && responderStatus !== 'STANDBY' && (
+            <Polyline
+              positions={responderPolyline}
+              pathOptions={{ color: '#A78BFA', weight: 2.5, opacity: 0.75, dashArray: '4, 4' }}
+            />
+          )}
+
+          {/* Responder → Target ETA Connection Line */}
+          {responderToTargetLine.length > 0 && (
+            <Polyline
+              positions={responderToTargetLine}
+              pathOptions={{ color: '#A78BFA', weight: 1.8, opacity: 0.75, className: 'route-team-line' }}
+            />
+          )}
+
+          {/* Human Rescue Team Marker */}
+          <Marker position={[responderLat, responderLng]} icon={createResponderIcon()}>
+            <Tooltip direction="bottom" opacity={0.95} permanent={false}>
+              <span className="font-mono text-xs" style={{ color: '#A78BFA' }}>RESCUE-TEAM-01</span>
+            </Tooltip>
+          </Marker>
+        </MapContainer>
+
+        {/* Recenter + Legend Controls (Bottom Right Overlay) */}
+        <div className="absolute bottom-6 right-6 z-[1000] flex flex-col items-end space-y-2 pointer-events-auto">
+          {/* Legend panel (collapsible) */}
+          {legendOpen && (
+            <div className="bg-[#111827]/90 backdrop-blur border border-[#1F293D] rounded-lg p-2.5 font-mono text-[10px] text-gray-300 space-y-1.5 shadow-2xl">
+              <div className="font-bold text-gray-200 border-b border-[#1F293D] pb-1 mb-1">MAP LEGEND</div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 rounded-full bg-[#EF4444] inline-block animate-ping"></span>
+                <span>DISTRESS TARGET ({activePuckId})</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 bg-[#06B6D4] rotate-45 inline-block"></span>
+                <span>UAV DRONE VECTOR</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3 h-3 rounded-full bg-[#F59E0B] inline-block"></span>
+                <span>AUTONOMOUS BUOY</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3.5 h-0.5 bg-[#10B981] inline-block"></span>
+                <span>DRIFT INTERCEPT</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="w-3.5 h-2 bg-[#06B6D4]/30 border border-[#06B6D4] inline-block"></span>
+                <span>DRIFT IMPACT ZONE</span>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Recenter + Legend Controls (Bottom Right Overlay) */}
-      <div className="absolute bottom-6 right-6 z-[1000] flex flex-col items-end space-y-2 pointer-events-auto">
-        {/* Legend panel (collapsible) */}
-        {legendOpen && (
-          <div className="bg-[#111827]/90 backdrop-blur border border-[#1F293D] rounded-lg p-2.5 font-mono text-[10px] text-gray-300 space-y-1.5 shadow-2xl">
-            <div className="font-bold text-gray-200 border-b border-[#1F293D] pb-1 mb-1">MAP LEGEND</div>
-            <div className="flex items-center space-x-2">
-              <span className="w-3 h-3 rounded-full bg-[#EF4444] inline-block animate-ping"></span>
-              <span>DISTRESS TARGET ({activePuckId})</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="w-3 h-3 bg-[#06B6D4] rotate-45 inline-block"></span>
-              <span>UAV DRONE VECTOR</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="w-3 h-3 rounded-full bg-[#F59E0B] inline-block"></span>
-              <span>AUTONOMOUS BUOY</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="w-3.5 h-0.5 bg-[#10B981] inline-block"></span>
-              <span>DRIFT INTERCEPT</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="w-3.5 h-2 bg-[#06B6D4]/30 border border-[#06B6D4] inline-block"></span>
-              <span>DRIFT IMPACT ZONE</span>
-            </div>
-          </div>
-        )}
-        {/* Legend toggle button */}
-        <button
-          onClick={() => setLegendOpen(o => !o)}
-          className="px-2.5 py-1.5 bg-[#111827]/90 hover:bg-[#06B6D4]/20 text-gray-400 hover:text-[#06B6D4] border border-[#1F293D] rounded-lg shadow-2xl transition-all flex items-center gap-1.5 font-mono text-[9px] font-bold"
-          title="Toggle Map Legend"
-        >
-          <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] animate-ping inline-block"></span>
-          LEGEND
-        </button>
-        {/* Recenter Button */}
-        <button
-          onClick={handleRecenter}
-          className="p-3 bg-[#111827]/90 hover:bg-[#06B6D4]/20 text-[#06B6D4] border border-[#06B6D4]/40 rounded-lg shadow-2xl transition-all flex items-center justify-center group"
-          title="Recenter Camera on Target"
-        >
-          <Locate className="w-5 h-5 group-hover:scale-110 transition-transform" />
-        </button>
+          )}
+          {/* Legend toggle button */}
+          <button
+            onClick={() => setLegendOpen(o => !o)}
+            className="px-2.5 py-1.5 bg-[#111827]/90 hover:bg-[#06B6D4]/20 text-gray-400 hover:text-[#06B6D4] border border-[#1F293D] rounded-lg shadow-2xl transition-all flex items-center gap-1.5 font-mono text-[9px] font-bold"
+            title="Toggle Map Legend"
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444] animate-ping inline-block"></span>
+            LEGEND
+          </button>
+          {/* Recenter Button */}
+          <button
+            onClick={handleRecenter}
+            className="p-3 bg-[#111827]/90 hover:bg-[#06B6D4]/20 text-[#06B6D4] border border-[#06B6D4]/40 rounded-lg shadow-2xl transition-all flex items-center justify-center group"
+            title="Recenter Camera on Target"
+          >
+            <Locate className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          </button>
+        </div>
       </div>
     </div>
   );

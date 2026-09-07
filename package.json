@@ -1,7 +1,7 @@
 {
   "name": "aquarescue-dashboard",
   "version": "2.0.0",
-  "description": "AquaRescue Laptop 2 Command & Intelligence Dashboard",
+  "description": "AQUARESCUE Laptop 2 Command & Intelligence Dashboard",
   "scripts": {
     "dev": "node server.js",
     "build": "next build",

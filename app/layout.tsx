@@ -4,8 +4,8 @@ import 'leaflet/dist/leaflet.css';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AquaRescue Command OS v2.0 - Laptop 2 Dashboard',
-  description: 'Distributed Detection and Autonomous Water Rescue System Command & Intelligence Dashboard',
+  title: 'AQUARESCUE Command OS v2.0 - Laptop 2 Dashboard',
+  description: 'AQUARESCUE Distributed Detection and Autonomous Water Rescue System Command & Intelligence Dashboard',
 };
 
 export default function RootLayout({

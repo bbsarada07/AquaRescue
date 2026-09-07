@@ -149,9 +149,9 @@ export const TelemetryRow: React.FC<TelemetryRowProps> = ({
     return () => cancelAnimationFrame(raf);
   }, [sensorData.driftHeading]);
 
-  const lat = filteredLocation ? filteredLocation.lat : 17.385063;
-  const lng = filteredLocation ? filteredLocation.lng : 78.486812;
-  const noiseDelta = filteredLocation && 'noiseDeltaMeters' in filteredLocation ? filteredLocation.noiseDeltaMeters : 3.5;
+  const lat = filteredLocation?.lat ?? 17.385044;
+  const lng = filteredLocation?.lng ?? 78.486671;
+  const noiseDelta = (filteredLocation as FilteredResult)?.noiseDeltaMeters ?? 0;
 
   const screechPct = Math.round((sensorData.screechConfidence || 0.96) * 100);
   const hydroCompensatedHeading = hydrodynamics ? hydrodynamics.compensatedHeadingDeg : 355;
@@ -189,7 +189,7 @@ export const TelemetryRow: React.FC<TelemetryRowProps> = ({
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">NOISE DELTA</span>
-            <span className="text-[#F59E0B] font-bold">{noiseDelta ? noiseDelta.toFixed(1) : '3.5'} m (FILTERED)</span>
+            <span className="text-[#F59E0B] font-bold">{noiseDelta.toFixed(1)} m (FILTERED)</span>
           </div>
           <div className="flex justify-between pt-1 border-t border-[#1F293D]/60 text-[10px]">
             <span className="text-gray-500">LAST UPDATE</span>

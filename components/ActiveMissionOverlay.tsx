@@ -20,19 +20,29 @@ import {
   Wifi,
   WifiOff,
   Video,
+  LifeBuoy,
 } from 'lucide-react';
 import { FilteredResult, GPSCoordinate, KalmanFilter2D } from '@/lib/kalman';
 import { HydrodynamicVectorResult, RESPONDER_SPEEDS, calculateBearingDeg } from '@/lib/hydrodynamics';
 import { BriefingResponse } from '@/lib/gemini';
 import { LogEntry } from '@/lib/socket';
+import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import AIBriefing from './AIBriefing';
 import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
+<<<<<<< HEAD
+import DraggableDronePiP from './DraggableDronePiP';
+import PayloadDropStatusPanel, { PayloadDropState } from './PayloadDropStatusPanel';
+import { Sidebar } from './Sidebar';
+import { TelemetryRow } from './TelemetryRow';
+import { IncidentTimeline } from './IncidentTimeline';
+=======
 import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import { Sidebar } from './Sidebar';
 import { TelemetryRow } from './TelemetryRow';
 import { IncidentTimeline } from './IncidentTimeline';
 import DispatchMatrixPanel from './DispatchMatrixPanel';
 import WorkspacePanel from './WorkspacePanel';
+>>>>>>> 1fc43f29d85a8616b847572442cf040b827cd9f4
 import {
   CRITICAL_PANEL_IDS,
   cloneLayoutMap,
@@ -57,7 +67,7 @@ const LeafletMapView = dynamic(
   }
 );
 
-const STORAGE_KEY = 'aquarescue.workspace.v3';
+const STORAGE_KEY = 'aquarescue.workspace.v4';
 
 // ── Props Interface ────────────────────────────────────────────────────────
 export interface ActiveMissionOverlayProps {
@@ -84,6 +94,8 @@ export interface ActiveMissionOverlayProps {
   droneStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
   buoyStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
   responderStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  payloadStatus?: PayloadDropState;
+  payloadStatusTimestamp?: number;
   predictionWindow: 15 | 30 | 45 | 60;
   setPredictionWindow: (sec: 15 | 30 | 45 | 60) => void;
   aiBriefing: BriefingResponse | null;
@@ -164,6 +176,8 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
   droneStatus,
   buoyStatus,
   responderStatus,
+  payloadStatus = 'STANDBY',
+  payloadStatusTimestamp,
   predictionWindow,
   setPredictionWindow,
   aiBriefing,
@@ -618,6 +632,20 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
                 {activeTargetContent}
               </PanelCard>
             )}
+            {/* Dedicated Payload / Life-Jacket Status Card (Command View) */}
+            <PanelCard
+              title="Payload / Life-Jacket Status"
+              icon={<LifeBuoy className="w-3 h-3" />}
+              headerColor="#10B981"
+            >
+              <PayloadDropStatusPanel
+                status={payloadStatus}
+                timestamp={payloadStatusTimestamp}
+                onManualPayloadDrop={onManualPayloadDrop}
+                targetLock={sensorData.gimbalLocked ?? true}
+                distanceM={droneDist}
+              />
+            </PanelCard>
             {panels['ai-briefing'].visible && (
               <PanelCard
                 title="Gemini AI Briefing"
@@ -707,23 +735,45 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
       // ── DRONE: UAV operations — drone feed dominates ─────────────────────
       case 'DRONE':
         return (
-          <div className="h-full flex flex-col overflow-hidden">
-            {/* Drone camera — fills the available vertical space */}
-            {panels['drone-camera'].visible && (
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <DroneCameraFeed {...droneCameraProps} />
-              </div>
-            )}
-            {/* Mission controls pinned at bottom */}
-            <div className="shrink-0 p-3 border-t border-[#1A2840]">
-              <PanelCard
-                title="Mission Controls"
-                icon={<Send className="w-3 h-3" />}
-                headerColor="#06B6D4"
-              >
-                {missionControlsContent}
-              </PanelCard>
+          <div className="h-full flex flex-col gap-3 p-3 overflow-y-auto">
+            {/* Primary Dominant UAV Optical & Thermal HD Video Feed */}
+            <div className="shrink-0" style={{ height: '360px', minHeight: '340px' }}>
+              <DroneCameraFeed {...droneCameraProps} />
             </div>
+
+            {/* Active Target HUD */}
+            <PanelCard
+              title="Active Target HUD"
+              icon={<LocateFixed className="w-3 h-3" />}
+              headerColor="#EF4444"
+              badge={<span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-ping inline-block" />}
+            >
+              {activeTargetContent}
+            </PanelCard>
+
+            {/* Dedicated Payload / Life-Jacket Status */}
+            <PanelCard
+              title="Payload / Life-Jacket Status"
+              icon={<LifeBuoy className="w-3 h-3" />}
+              headerColor="#10B981"
+            >
+              <PayloadDropStatusPanel
+                status={payloadStatus}
+                timestamp={payloadStatusTimestamp}
+                onManualPayloadDrop={onManualPayloadDrop}
+                targetLock={sensorData.gimbalLocked ?? true}
+                distanceM={droneDist}
+              />
+            </PanelCard>
+
+            {/* Mission Controls */}
+            <PanelCard
+              title="Mission Controls"
+              icon={<Send className="w-3 h-3" />}
+              headerColor="#06B6D4"
+            >
+              {missionControlsContent}
+            </PanelCard>
           </div>
         );
 
@@ -748,6 +798,20 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
                 {activeTargetContent}
               </PanelCard>
             )}
+            {/* Dedicated Payload / Life-Jacket Status Card (Full Tactical View) */}
+            <PanelCard
+              title="Payload / Life-Jacket Status"
+              icon={<LifeBuoy className="w-3 h-3" />}
+              headerColor="#10B981"
+            >
+              <PayloadDropStatusPanel
+                status={payloadStatus}
+                timestamp={payloadStatusTimestamp}
+                onManualPayloadDrop={onManualPayloadDrop}
+                targetLock={sensorData.gimbalLocked ?? true}
+                distanceM={droneDist}
+              />
+            </PanelCard>
             {panels['rescue-team'].visible && (
               <PanelCard
                 title="Rescue Team-01"
@@ -862,7 +926,7 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
           </div>
           <div className="hidden sm:block">
             <div className="flex items-center gap-2">
-              <span className="text-white font-extrabold text-sm tracking-[0.1em]">AQUA RESCUE</span>
+              <span className="text-white font-extrabold text-sm tracking-[0.1em]">AQUARESCUE</span>
               <span className="text-[#06B6D4] text-[8px] font-bold px-1.5 py-0.5 bg-[#06B6D4]/10 border border-[#06B6D4]/30 rounded tracking-wider">
                 COMMAND OS V2.0
               </span>
@@ -1047,6 +1111,11 @@ export const ActiveMissionOverlay: React.FC<ActiveMissionOverlayProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ── PERSISTENT DRAGGABLE / MINIMIZABLE UAV FEED (PICTURE-IN-PICTURE IN RESCUE VIEW) ── */}
+      {activePreset === 'RESCUE' && (
+        <DraggableDronePiP {...droneCameraProps} />
+      )}
     </div>
   );
 };

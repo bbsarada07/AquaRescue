@@ -162,7 +162,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           <div className="text-sm font-bold text-gray-300 tracking-tight">
             LNG: {rawLocation?.lng != null ? rawLocation.lng.toFixed(6) : '78.486671'}
           </div>
-          <div className="text-[9px] text-[#F59E0B] mt-0.5">Jitter Noise: {(filteredLocation as any)?.noiseDeltaMeters ?? 0}m</div>
+          <div className="text-[9px] text-[#F59E0B] mt-0.5">Jitter Noise: {(((filteredLocation as any)?.noiseDeltaMeters ?? 0)).toFixed(1)}m (FILTERED)</div>
         </div>
       </div>
 

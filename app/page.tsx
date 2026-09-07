@@ -169,8 +169,45 @@ function DashboardContent() {
         buoyEtaSec={state.hydrodynamics?.distanceMatrix?.buoyEtaSec}
       />
 
+<<<<<<< HEAD
+      {/* ── FULL-SCREEN ACTIVE RESCUE MISSION OVERLAY (WHEN DISTRESS ACTIVE) ── */}
+      {state.activeDistress && (
+        <ActiveMissionOverlay
+          missionId={state.missionId}
+          missionStartTime={state.missionStartTime}
+          puckId={state.puckId}
+          filteredLocation={state.filteredLocation}
+          rawLocation={state.rawLocation}
+          sensorData={state.sensorData}
+          hydrodynamics={state.hydrodynamics}
+          droneLocation={state.droneLocation}
+          buoyLocation={state.buoyLocation}
+          responderLocation={state.responderLocation}
+          dronePath={state.dronePath}
+          buoyPath={state.buoyPath}
+          responderPath={state.responderPath}
+          droneStatus={state.droneStatus}
+          buoyStatus={state.buoyStatus}
+          responderStatus={state.responderStatus}
+          payloadStatus={state.payloadStatus}
+          payloadStatusTimestamp={state.payloadStatusTimestamp}
+          predictionWindow={predictionWindow}
+          setPredictionWindow={setPredictionWindow}
+          aiBriefing={state.aiBriefing}
+          audioVoiceEnabled={state.audioVoiceEnabled}
+          eventLogs={state.eventLogs}
+          isConnected={state.isConnected}
+          onExecuteRescue={sendExecuteRescue}
+          onOverrideDispatch={sendOverrideDispatch}
+          onManualPayloadDrop={sendManualPayloadDrop}
+          onResolveIncident={handleResolveIncident}
+          onToggleAudio={toggleAudioVoice}
+        />
+      )}
+=======
       {/* ── INTERACTIVE QUICK TOUR DEMO WALKTHROUGH OVERLAY ──────────────── */}
       <QuickTourOverlay />
+>>>>>>> 1fc43f29d85a8616b847572442cf040b827cd9f4
 
       {/* ── MISSION COMPLETE MODAL (WHEN INCIDENT RESOLVED) ────────────────── */}
       {showMissionComplete && lastMissionSummary && (
