@@ -84,16 +84,23 @@ const INITIAL_DRONE: GPSCoordinate = { lat: 17.387544, lng: 78.489171 };
 const INITIAL_BUOY: GPSCoordinate = { lat: 17.383044, lng: 78.485171 };
 const INITIAL_RESPONDER: GPSCoordinate = { lat: 17.382044, lng: 78.488671 };
 
-// Helper to sanitize connection URL protocol for Socket.io
-function getSanitizedUrl(targetUrl?: string): string {
-  const url = targetUrl || process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
-  // Convert ws:// or wss:// to http:// or https:// for socket.io client origin resolution
-  if (url.startsWith('wss://')) return url.replace('wss://', 'https://');
-  if (url.startsWith('ws://')) return url.replace('ws://', 'http://');
-  return url;
+// Helper to sanitize & resolve connection URL protocol for Socket.io
+export function getResolvedWsUrl(overrideUrl?: string): string {
+  const rawUrl = overrideUrl || process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
+  // Convert ws:// or wss:// to http:// or https:// for Socket.io engine client
+  if (rawUrl.startsWith('wss://')) return rawUrl.replace('wss://', 'https://');
+  if (rawUrl.startsWith('ws://')) return rawUrl.replace('ws://', 'http://');
+  return rawUrl;
 }
 
-export function useSocketTelemetry(serverUrl: string = DEFAULT_WS_URL) {
+// Single unified Socket.io client instance
+export const socket: Socket = io(getResolvedWsUrl(), {
+  transports: ['websocket', 'polling'],
+  autoConnect: true,
+  reconnectionAttempts: Infinity,
+});
+
+export function useSocketTelemetry(serverUrl?: string) {
   const socketRef = useRef<Socket | null>(null);
 
   // High-frequency useRef buffer for 100ms telemetry ticks
@@ -144,7 +151,7 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_WS_URL) {
     missionId: null,
     eventLogs: [],
     audioVoiceEnabled: true,
-    serverUrl
+    serverUrl: getResolvedWsUrl(serverUrl)
   });
 
   const addLog = useCallback((type: LogEntry['type'], message: string, details?: string) => {
@@ -285,7 +292,8 @@ export function useSocketTelemetry(serverUrl: string = DEFAULT_WS_URL) {
 
   // Dynamic Socket Connection Management
   useEffect(() => {
-    const targetEndpoint = getSanitizedUrl(serverUrl);
+    const targetEndpoint = getResolvedWsUrl(serverUrl);
+    console.log("[AquaRescue Socket] Connecting to endpoint:", targetEndpoint);
     addLog('SYSTEM', `Initializing Socket.io client to endpoint: ${targetEndpoint}`);
 
     const socketInstance = io(targetEndpoint, {
