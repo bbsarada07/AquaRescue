@@ -2,6 +2,15 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
+import { 
+  Server, 
+  RefreshCw, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2, 
+  Wifi, 
+  WifiOff 
+} from 'lucide-react';
 import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import { HeaderBar } from '@/components/HeaderBar';
 import { TelemetryHUD } from '@/components/TelemetryHUD';
@@ -17,6 +26,16 @@ import { UIProvider, useUI } from '@/lib/uiContext';
 import { useSocketTelemetry } from '@/lib/socket';
 import { useHotkeys } from '@/lib/useHotkeys';
 import { type DroneCameraMode } from '@/components/DroneCameraFeed';
+
+// FastAPI Backend Base URL
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://aquarescue-backend.onrender.com';
+
+interface BackendTelemetry {
+  status?: string;
+  message?: string;
+  timestamp?: number | string;
+  [key: string]: any;
+}
 
 const LeafletMapView = dynamic(
   () => import('@/components/LeafletMapView'),
@@ -62,6 +81,11 @@ function DashboardContent() {
   const [monitoringCameraMode, setMonitoringCameraMode] = useState<DroneCameraMode>('RGB');
   const prevDistressRef = useRef(false);
 
+  // FastAPI dynamic telemetry state
+  const [telemetry, setTelemetry] = useState<BackendTelemetry | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [lastMissionSummary, setLastMissionSummary] = useState<{
     puckId: string;
     missionId: string | null;
@@ -84,6 +108,36 @@ function DashboardContent() {
     triggerDemoScenario,
     addLog,
   } = useSocketTelemetry();
+
+  // Asynchronous fetch for FastAPI backend telemetry
+  const fetchTelemetry = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch(`${API_URL}/`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText || 'Failed to fetch backend telemetry'}`);
+      }
+
+      const data: BackendTelemetry = await res.json();
+      setTelemetry(data);
+    } catch (err: any) {
+      console.warn('FastAPI backend fetch notice:', err);
+      setError(err?.message || 'Unable to establish connection with FastAPI backend service');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTelemetry();
+  }, [fetchTelemetry]);
 
   // Voice announcements on critical emergency events
   useEffect(() => {
@@ -169,7 +223,6 @@ function DashboardContent() {
         buoyEtaSec={state.hydrodynamics?.distanceMatrix?.buoyEtaSec}
       />
 
-<<<<<<< HEAD
       {/* ── FULL-SCREEN ACTIVE RESCUE MISSION OVERLAY (WHEN DISTRESS ACTIVE) ── */}
       {state.activeDistress && (
         <ActiveMissionOverlay
@@ -204,10 +257,9 @@ function DashboardContent() {
           onToggleAudio={toggleAudioVoice}
         />
       )}
-=======
+
       {/* ── INTERACTIVE QUICK TOUR DEMO WALKTHROUGH OVERLAY ──────────────── */}
       <QuickTourOverlay />
->>>>>>> 1fc43f29d85a8616b847572442cf040b827cd9f4
 
       {/* ── MISSION COMPLETE MODAL (WHEN INCIDENT RESOLVED) ────────────────── */}
       {showMissionComplete && lastMissionSummary && (
@@ -236,6 +288,63 @@ function DashboardContent() {
         onResolve={handleResolveIncident}
         onShareTrack={() => setIsDispatchModalOpen(true)}
       />
+
+      {/* ── FASTAPI BACKEND TELEMETRY INTEGRATION STATUS STRIP ─────────── */}
+      <div className="w-full bg-[#0B111E] border-b border-slate-800/80 px-4 py-1.5 flex flex-wrap items-center justify-between text-xs font-mono select-none z-20 gap-2">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-1.5 text-slate-400">
+            <Server className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="text-[11px] font-semibold tracking-wider text-slate-300 uppercase">
+              FastAPI API Service:
+            </span>
+            <span className="text-[10px] text-cyan-400/80 max-w-[200px] sm:max-w-xs truncate" title={API_URL}>
+              {API_URL}
+            </span>
+          </div>
+
+          <div className="h-3 w-px bg-slate-800 hidden sm:block" />
+
+          {/* Dynamic API Status Indicators */}
+          {loading ? (
+            <div className="flex items-center space-x-1.5 text-amber-400 animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span className="text-[11px] font-medium">QUERYING ENDPOINT...</span>
+            </div>
+          ) : error ? (
+            <div className="flex items-center space-x-2 text-rose-400">
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <span className="text-[11px] font-medium truncate max-w-xs sm:max-w-md">
+                ENDPOINT OFFLINE: {error}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1.5 text-emerald-400">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-[11px] font-bold tracking-wide">
+                {telemetry?.status || 'CONNECTED'}
+              </span>
+              {telemetry?.message && (
+                <span className="text-[10px] text-slate-400 hidden md:inline">
+                  — {telemetry.message}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action / Fallback Retry Button */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={fetchTelemetry}
+            disabled={loading}
+            title="Refresh FastAPI Backend Telemetry"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-cyan-300 text-[10px] transition-all active:scale-95 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
+            <span>SYNC API</span>
+          </button>
+        </div>
+      </div>
 
       {/* ── PERSISTENT RED EMERGENCY BANNER WITH 1-CLICK AUTO DISPATCH ───── */}
       {state.activeDistress && (
