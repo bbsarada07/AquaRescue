@@ -161,6 +161,8 @@ export default function AquaRescueDashboard() {
           droneStatus={state.droneStatus}
           buoyStatus={state.buoyStatus}
           responderStatus={state.responderStatus}
+          payloadStatus={state.payloadStatus}
+          payloadStatusTimestamp={state.payloadStatusTimestamp}
           predictionWindow={predictionWindow}
           setPredictionWindow={setPredictionWindow}
           aiBriefing={state.aiBriefing}

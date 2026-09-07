@@ -66,6 +66,8 @@ export interface AquaRescueState {
   droneStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
   buoyStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
   responderStatus: 'STANDBY' | 'DISPATCHED' | 'EN_ROUTE' | 'TARGET_REACHED' | 'OFFLINE';
+  payloadStatus: 'STANDBY' | 'EN_ROUTE' | 'RELEASED' | 'CONFIRMED_DEPLOYED';
+  payloadStatusTimestamp: number;
   lastPacketTimestamp: number | null;
   missionStartTime: number | null;
   missionId: string | null;
@@ -131,6 +133,8 @@ export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
     droneStatus: 'STANDBY',
     buoyStatus: 'STANDBY',
     responderStatus: 'STANDBY',
+    payloadStatus: 'STANDBY',
+    payloadStatusTimestamp: Date.now(),
     lastPacketTimestamp: null,
     missionStartTime: null,
     missionId: null,
@@ -218,6 +222,13 @@ export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
               nextResponderStatus = 'TARGET_REACHED';
             }
 
+            let nextPayloadStatus = prev.payloadStatus;
+            let nextPayloadTimestamp = prev.payloadStatusTimestamp;
+            if ((nextDroneStatus === 'TARGET_REACHED' || droneDist < 12) && (prev.payloadStatus === 'RELEASED' || prev.payloadStatus === 'EN_ROUTE')) {
+              nextPayloadStatus = 'CONFIRMED_DEPLOYED';
+              nextPayloadTimestamp = Date.now();
+            }
+
             return {
               ...prev,
               activeDistress: true,
@@ -242,6 +253,8 @@ export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
               droneStatus: nextDroneStatus,
               buoyStatus: nextBuoyStatus,
               responderStatus: nextResponderStatus,
+              payloadStatus: nextPayloadStatus,
+              payloadStatusTimestamp: nextPayloadTimestamp,
               lastPacketTimestamp: data.timestamp,
               missionStartTime: prev.missionStartTime || Date.now(),
               missionId: prev.missionId || `AR-${Math.floor(100 + Math.random() * 899)}`
@@ -346,7 +359,9 @@ export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
     setState(prev => ({
       ...prev,
       droneStatus: 'DISPATCHED',
-      buoyStatus: 'DISPATCHED'
+      buoyStatus: 'DISPATCHED',
+      payloadStatus: 'EN_ROUTE',
+      payloadStatusTimestamp: Date.now()
     }));
     addLog('COMMAND', `EXECUTE_RESCUE sent for ${state.puckId}`, `Drone: LOCK_GIMBAL_AND_DROP | Buoy Drift Heading: ${hydro?.compensatedHeadingDeg || 128}°`);
   }, [state.activeDistress, state.puckId, state.filteredLocation, state.hydrodynamics, addLog]);
@@ -380,7 +395,9 @@ export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
     }
     setState(prev => ({
       ...prev,
-      droneStatus: 'DISPATCHED'
+      droneStatus: 'DISPATCHED',
+      payloadStatus: 'RELEASED',
+      payloadStatusTimestamp: Date.now()
     }));
     addLog('COMMAND', `MANUAL PAYLOAD DROP sent to UAV for ${state.puckId}`);
   }, [state.puckId, state.filteredLocation, addLog]);
@@ -409,6 +426,8 @@ export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
       droneStatus: 'STANDBY',
       buoyStatus: 'STANDBY',
       responderStatus: 'STANDBY',
+      payloadStatus: 'STANDBY',
+      payloadStatusTimestamp: Date.now(),
       lastPacketTimestamp: null,
       missionStartTime: null,
       missionId: null,

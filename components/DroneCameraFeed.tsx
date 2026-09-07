@@ -496,9 +496,15 @@ export const DroneCameraFeed: React.FC<DroneCameraFeedProps> = ({
           }}
         />
 
-        {/* ── HUD top-left: drone ID + telemetry ──────────────────────── */}
-        <div className="absolute top-2 left-2 right-2 flex items-start justify-between font-mono text-[10px] text-white z-20 gap-1">
-          <div className="flex items-center gap-1.5 bg-black/65 backdrop-blur-sm px-2 py-1 rounded border border-white/10">
+        {/* ── Top Gradient Scrim Bar ──────────────────────────────────── */}
+        <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/90 via-black/55 to-transparent pointer-events-none z-15" />
+
+        {/* ── Bottom Gradient Scrim Bar ───────────────────────────────── */}
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none z-15" />
+
+        {/* ── HUD top-left: drone ID + telemetry + Scanning Badge ──────── */}
+        <div className="absolute top-2 left-2 right-2 flex items-start justify-between font-mono text-[10px] text-white z-20 gap-1 pointer-events-auto">
+          <div className="flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2.5 py-1 rounded-md border border-white/15 shadow-lg">
             <span className="font-bold" style={{ color: modeAccent }}>{droneId || 'UAV-RESCUE-01'}</span>
             <span className="text-gray-500">·</span>
             <span>ALT {Math.round(altitudeM || 48)} m</span>
@@ -509,8 +515,16 @@ export const DroneCameraFeed: React.FC<DroneCameraFeedProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-ping mr-1 inline-block shrink-0" />
               REC
             </span>
+            {!overlay && (
+              <>
+                <span className="text-gray-500">·</span>
+                <span className="px-1.5 py-0.5 rounded bg-[#06B6D4]/20 border border-[#06B6D4]/40 text-[#06B6D4] text-[8px] font-bold uppercase tracking-wider animate-pulse">
+                  SCANNING · AWAITING TARGET
+                </span>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-1.5 bg-black/65 backdrop-blur-sm px-2 py-1 rounded border border-white/10 text-right">
+          <div className="flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2.5 py-1 rounded-md border border-white/15 shadow-lg text-right">
             <span>{wallClock.toLocaleTimeString('en-US', { hour12: false })}</span>
             <span className="text-gray-500">·</span>
             <span>LAT {(targetLat || 17.385044).toFixed(5)}</span>
@@ -519,63 +533,74 @@ export const DroneCameraFeed: React.FC<DroneCameraFeedProps> = ({
           </div>
         </div>
 
-        {/* ── Mode label badge (bottom-left) ──────────────────────────── */}
-        <div className="absolute bottom-10 left-2 z-20">
-          <span
-            className="text-[8px] font-bold font-mono px-2 py-0.5 rounded"
-            style={{
-              color: modeAccent,
-              border: `1px solid ${modeAccent}55`,
-              background: `${modeAccent}18`,
-            }}
-          >
-            {modeLabel}
-          </span>
-        </div>
+        {/* ── Bottom Control Toolbar (Mode selector + divider + Zoom) ──── */}
+        <div className="absolute bottom-2 left-2 right-2 z-20 flex items-center justify-between pointer-events-auto">
+          {/* Mode label badge */}
+          <div className="flex items-center gap-1.5">
+            <span
+              className="text-[8px] font-bold font-mono px-2 py-1 rounded shadow-md"
+              style={{
+                color: modeAccent,
+                border: `1px solid ${modeAccent}66`,
+                background: `${modeAccent}20`,
+              }}
+            >
+              {modeLabel}
+            </span>
+          </div>
 
-        {/* ── Zoom badge (bottom-right) ────────────────────────────────── */}
-        <div className="absolute bottom-10 right-2 z-20 flex items-center gap-1.5">
-          <button
-            className="text-[8px] font-mono font-bold px-2 py-0.5 rounded border border-white/10 bg-black/60 text-gray-300 hover:text-white"
-            onClick={() => setZoomLevel(z => parseFloat(Math.max(1, z - 0.5).toFixed(1)))}
-          >−</button>
-          <span className="text-[8px] font-mono text-gray-300 bg-black/60 px-1.5 py-0.5 rounded border border-white/10">
-            {zoomLevel.toFixed(1)}×
-          </span>
-          <button
-            className="text-[8px] font-mono font-bold px-2 py-0.5 rounded border border-white/10 bg-black/60 text-gray-300 hover:text-white"
-            onClick={() => setZoomLevel(z => parseFloat(Math.min(8, z + 0.5).toFixed(1)))}
-          >+</button>
-        </div>
+          {/* Unified Fixed-Height Toolbar */}
+          <div className="flex items-center gap-2 bg-black/85 backdrop-blur-md px-2 py-1 rounded-lg border border-white/15 shadow-2xl h-8">
+            {/* Mode switch cluster */}
+            <div className="flex items-center gap-1">
+              {(['RGB', 'THERMAL', 'NIGHT'] as DroneCameraMode[]).map((m) => {
+                const labels: Record<DroneCameraMode, string> = { RGB: 'OPTICAL', THERMAL: 'THERMAL', NIGHT: 'NIGHT IR' };
+                const accents: Record<DroneCameraMode, string> = { RGB: '#06B6D4', THERMAL: '#F59E0B', NIGHT: '#10B981' };
+                const isActive = mode === m;
+                return (
+                  <button
+                    key={m}
+                    id={`cam-mode-${m.toLowerCase()}`}
+                    onClick={() => onModeChange(m)}
+                    className="flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold rounded transition-all"
+                    style={isActive ? {
+                      background: `${accents[m]}30`,
+                      border:     `1px solid ${accents[m]}`,
+                      color:       accents[m],
+                    } : {
+                      color:   '#9CA3AF',
+                      border:  '1px solid transparent',
+                    }}
+                  >
+                    {m === 'RGB'     && <Eye   className="w-2.5 h-2.5" />}
+                    {m === 'THERMAL' && <Flame className="w-2.5 h-2.5" />}
+                    {m === 'NIGHT'   && <Moon  className="w-2.5 h-2.5" />}
+                    {labels[m]}
+                  </button>
+                );
+              })}
+            </div>
 
-        {/* ── Mode selector tabs (bottom-center, inside viewport) ───────── */}
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex gap-0.5 bg-black/70 backdrop-blur-sm p-0.5 rounded-md border border-white/10">
-          {(['RGB', 'THERMAL', 'NIGHT'] as DroneCameraMode[]).map((m) => {
-            const labels: Record<DroneCameraMode, string> = { RGB: 'OPTICAL', THERMAL: 'THERMAL', NIGHT: 'NIGHT IR' };
-            const accents: Record<DroneCameraMode, string> = { RGB: '#06B6D4', THERMAL: '#F59E0B', NIGHT: '#10B981' };
-            const isActive = mode === m;
-            return (
+            {/* Thin vertical divider */}
+            <div className="w-px h-4 bg-white/20" />
+
+            {/* Zoom cluster */}
+            <div className="flex items-center gap-1">
               <button
-                key={m}
-                id={`cam-mode-${m.toLowerCase()}`}
-                onClick={() => onModeChange(m)}
-                className="flex items-center gap-1 px-2 py-0.5 text-[8px] font-bold rounded transition-all"
-                style={isActive ? {
-                  background: `${accents[m]}30`,
-                  border:     `1px solid ${accents[m]}`,
-                  color:       accents[m],
-                } : {
-                  color:   '#6B7280',
-                  border:  '1px solid transparent',
-                }}
-              >
-                {m === 'RGB'     && <Eye   className="w-2 h-2" />}
-                {m === 'THERMAL' && <Flame className="w-2 h-2" />}
-                {m === 'NIGHT'   && <Moon  className="w-2 h-2" />}
-                {labels[m]}
-              </button>
-            );
-          })}
+                className="w-5 h-5 flex items-center justify-center text-[10px] font-mono font-bold rounded border border-white/10 bg-white/5 text-gray-300 hover:text-white hover:bg-white/15 transition-all"
+                onClick={() => setZoomLevel(z => parseFloat(Math.max(1, z - 0.5).toFixed(1)))}
+                title="Zoom Out"
+              >−</button>
+              <span className="text-[9px] font-mono font-bold text-[#06B6D4] px-1 tabular-nums">
+                {zoomLevel.toFixed(1)}×
+              </span>
+              <button
+                className="w-5 h-5 flex items-center justify-center text-[10px] font-mono font-bold rounded border border-white/10 bg-white/5 text-gray-300 hover:text-white hover:bg-white/15 transition-all"
+                onClick={() => setZoomLevel(z => parseFloat(Math.min(8, z + 0.5).toFixed(1)))}
+                title="Zoom In"
+              >+</button>
+            </div>
+          </div>
         </div>
 
         {/* ── Bounding-box overlay (NOT baked into canvas) ─────────────── */}
@@ -640,17 +665,14 @@ export const DroneCameraFeed: React.FC<DroneCameraFeedProps> = ({
           </div>
         )}
 
-        {/* ── Default scanning box (before any events fire) ─────────────── */}
+        {/* ── Default scanning reticle crosshair (unobtrusive center) ──── */}
         {!overlay && (
-          <div className="absolute inset-0 pointer-events-none z-20">
-            {/* Crosshair reticle */}
-            <div className="absolute left-1/2 top-[52%] -translate-x-1/2 -translate-y-1/2 w-6 h-6 opacity-40">
+          <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
+            {/* Minimal Crosshair reticle in center */}
+            <div className="relative w-8 h-8 opacity-40">
               <div className="absolute inset-0 rounded-full border border-[#06B6D4]" />
               <div className="absolute top-1/2 left-0 w-full h-px bg-[#06B6D4]" />
               <div className="absolute left-1/2 top-0 h-full w-px bg-[#06B6D4]" />
-            </div>
-            <div className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 px-2 py-0.5 bg-black/70 border border-[#06B6D4]/40 text-[#06B6D4] text-[9px] font-mono font-bold rounded">
-              SCANNING — AWAITING TARGET
             </div>
           </div>
         )}
