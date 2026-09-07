@@ -2,7 +2,7 @@
  * AquaRescue WebSocket Client & High-Frequency Telemetry Buffer
  * 
  * Features:
- * - Socket.io auto-connecting to NEXT_PUBLIC_SOCKET_URL or fallback http://localhost:5000
+ * - Socket.io auto-connecting to NEXT_PUBLIC_WS_URL or fallback wss://aquarescue-backend.onrender.com
  * - Single unified Socket.io client instance export
  * - Fallback transport compatibility: ['websocket', 'polling']
  * - Reconnection attempts: Infinity
@@ -77,10 +77,11 @@ export interface AquaRescueState {
 }
 
 // Environment bindings & dynamic connection URL
-export const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_SOCKET_URL || "wss://aquarescue-backend.onrender.com";
+export const SOCKET_URL = WS_URL;
 
 // Single unified Socket.io client instance
-export const socket: Socket = io(SOCKET_URL, {
+export const socket: Socket = io(WS_URL, {
   transports: ['websocket', 'polling'],
   autoConnect: true,
   reconnectionAttempts: Infinity,
@@ -91,7 +92,7 @@ const INITIAL_DRONE: GPSCoordinate = { lat: 17.387544, lng: 78.489171 };
 const INITIAL_BUOY: GPSCoordinate = { lat: 17.383044, lng: 78.485171 };
 const INITIAL_RESPONDER: GPSCoordinate = { lat: 17.382044, lng: 78.488671 };
 
-export function useSocketTelemetry(serverUrl: string = SOCKET_URL) {
+export function useSocketTelemetry(serverUrl: string = WS_URL) {
   // High-frequency useRef buffer for 100ms telemetry ticks
   const telemetryBufferRef = useRef<TelemetryData | null>(null);
   const kalmanRef = useRef<KalmanFilter2D>(new KalmanFilter2D(1e-5, 5e-5));
