@@ -9,7 +9,7 @@ app = FastAPI(
 )
 
 # CORS Configuration
-frontend_url = os.getenv("FRONTEND_URL", "https://your-frontend-app.vercel.app")
+frontend_url = os.getenv("FRONTEND_URL", "https://aquarescue.vercel.app?_vercel_share=RoqFIijyGE9ZvMiAb1rJVy2k76nnLJXX")
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
