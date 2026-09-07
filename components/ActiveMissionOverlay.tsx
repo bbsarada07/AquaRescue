@@ -29,11 +29,20 @@ import { LogEntry } from '@/lib/socket';
 import { HumanDetectedPayload } from '@/lib/detectionEvents';
 import AIBriefing from './AIBriefing';
 import DroneCameraFeed, { DroneCameraMode } from './DroneCameraFeed';
+<<<<<<< HEAD
 import DraggableDronePiP from './DraggableDronePiP';
 import PayloadDropStatusPanel, { PayloadDropState } from './PayloadDropStatusPanel';
 import { Sidebar } from './Sidebar';
 import { TelemetryRow } from './TelemetryRow';
 import { IncidentTimeline } from './IncidentTimeline';
+=======
+import { HumanDetectedPayload } from '@/lib/detectionEvents';
+import { Sidebar } from './Sidebar';
+import { TelemetryRow } from './TelemetryRow';
+import { IncidentTimeline } from './IncidentTimeline';
+import DispatchMatrixPanel from './DispatchMatrixPanel';
+import WorkspacePanel from './WorkspacePanel';
+>>>>>>> 1fc43f29d85a8616b847572442cf040b827cd9f4
 import {
   CRITICAL_PANEL_IDS,
   cloneLayoutMap,

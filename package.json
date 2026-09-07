@@ -20,6 +20,7 @@
     "cors": "^2.8.5",
     "deck.gl": "^9.0.0",
     "express": "^4.19.2",
+    "framer-motion": "^13.1.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.378.0",
     "mapbox-gl": "^3.3.0",
