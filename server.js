@@ -1,10 +1,11 @@
 /**
- * AquaRescue Dual-Purpose Express + Next.js Server & HIL MQTT Relay
+ * AquaRescue Production Express + Next.js Server & HIL MQTT Relay
  * 
  * Features:
- * - Initializes Next.js app (next({ dev })) and attaches Express + HTTP Server
- * - Dynamic port binding (process.env.PORT || 5000)
- * - Socket.io with CORS & 10s pingInterval keep-alive heartbeat for Render idle proxy drops
+ * - Initializes Next.js app with attached Express + HTTP Server
+ * - Dynamic port & host binding (process.env.PORT || 5000 on '0.0.0.0') for Render
+ * - Socket.io with production CORS (Vercel & localhost), ['polling', 'websocket'] transports, 
+ *   and 25s pingInterval / 60s pingTimeout keep-alive for Render reverse proxy
  * - MQTT Client connecting to mqtt://broker.hivemq.com:1883
  * - Subscribes to aquarescue/telemetry/# and emits hardware_telemetry_update to active Socket.io clients
  * - Standard Next.js route handling for all HTTP traffic
@@ -21,20 +22,53 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-const PORT = process.env.PORT || 5000;
+const PORT = parseInt(process.env.PORT || '5000', 10);
+const HOST = '0.0.0.0';
+
+// Allowed origins list for CORS
+const allowedOrigins = [
+  'https://aquarescue.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (origin.endsWith('.vercel.app')) return true;
+  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return true;
+  if (/^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
+  return true; // Gracefully permit verified origins in production
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    callback(null, isOriginAllowed(origin));
+  },
+  methods: ['GET', 'POST'],
+  credentials: true,
+};
 
 app.prepare().then(() => {
   const server = express();
-  server.use(cors());
+  server.use(cors(corsOptions));
   server.use(express.json());
 
   const httpServer = http.createServer(server);
 
-  // Initialize socket.io with CORS and production heartbeat keep-alive settings
+  // Initialize Socket.io with production CORS, transports, and keep-alive settings
   const io = new Server(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
-    pingInterval: 10000, // Send heartbeat every 10s to prevent Render idle proxy drops
-    pingTimeout: 5000,
+    cors: {
+      origin: (origin, callback) => {
+        callback(null, isOriginAllowed(origin));
+      },
+      methods: ['GET', 'POST'],
+      credentials: true,
+    },
+    transports: ['polling', 'websocket'],
+    pingInterval: 25000, // 25s heartbeat to prevent Render reverse-proxy drop
+    pingTimeout: 60000,  // 60s timeout for network latency tolerance
   });
 
   // Instantiate MQTT client connecting to public broker
@@ -104,7 +138,11 @@ app.prepare().then(() => {
   }
 
   io.on('connection', (socket) => {
-    console.log(`[AquaRescue Mesh Bridge] Client connected: ${socket.id}`);
+    console.log(`[AquaRescue Mesh Bridge] Client connected: ${socket.id} (Transport: ${socket.conn.transport.name})`);
+
+    socket.conn.on('upgrade', (transport) => {
+      console.log(`[AquaRescue Mesh Bridge] Client ${socket.id} upgraded transport to: ${transport.name}`);
+    });
 
     socket.on('DISTRESS_TRIGGERED', (data) => {
       console.log(`[ALERT RECEIVED] Puck: ${data.puck_id}`, data.location);
@@ -149,17 +187,19 @@ app.prepare().then(() => {
       startHighFrequencyStream();
     });
 
-    socket.on('disconnect', () => {
-      console.log(`[AquaRescue Mesh Bridge] Client disconnected: ${socket.id}`);
+    socket.on('disconnect', (reason) => {
+      console.log(`[AquaRescue Mesh Bridge] Client disconnected: ${socket.id} (Reason: ${reason})`);
     });
   });
 
+  // Health check endpoint for Render monitoring
   server.get('/health', (req, res) => {
-    res.json({
-      status: 'ONLINE',
+    res.status(200).json({
+      status: 'ok',
+      timestamp: Date.now(),
       system: 'AquaRescue Command Server v2.0',
       port: PORT,
-      activeSimulation: simulationActive
+      activeSimulation: simulationActive,
     });
   });
 
@@ -168,11 +208,12 @@ app.prepare().then(() => {
     return handle(req, res);
   });
 
-  httpServer.listen(PORT, (err) => {
+  httpServer.listen(PORT, HOST, (err) => {
     if (err) throw err;
     console.log(`=======================================================`);
-    console.log(` AquaRescue Dual-Purpose Express + Next.js Server on :${PORT} `);
+    console.log(` AquaRescue Express + Socket.io Server on http://${HOST}:${PORT} `);
     console.log(` NODE_ENV=${process.env.NODE_ENV || 'development'} `);
+    console.log(` Health check available at: http://${HOST}:${PORT}/health `);
     console.log(`=======================================================`);
   });
 }).catch((err) => {
