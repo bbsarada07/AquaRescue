@@ -77,7 +77,7 @@ export interface AquaRescueState {
 }
 
 // Environment bindings & dynamic connection URL fallback
-export const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
+export const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_WS_URL || "https://aquarescue-backend.onrender.com";
 
 const INITIAL_VICTIM: GPSCoordinate = { lat: 17.385044, lng: 78.486671 };
 const INITIAL_DRONE: GPSCoordinate = { lat: 17.387544, lng: 78.489171 };
@@ -85,19 +85,23 @@ const INITIAL_BUOY: GPSCoordinate = { lat: 17.383044, lng: 78.485171 };
 const INITIAL_RESPONDER: GPSCoordinate = { lat: 17.382044, lng: 78.488671 };
 
 // Helper to sanitize & resolve connection URL protocol for Socket.io
-export function getResolvedWsUrl(overrideUrl?: string): string {
-  const rawUrl = overrideUrl || process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
-  // Convert ws:// or wss:// to http:// or https:// for Socket.io engine client
-  if (rawUrl.startsWith('wss://')) return rawUrl.replace('wss://', 'https://');
-  if (rawUrl.startsWith('ws://')) return rawUrl.replace('ws://', 'http://');
-  return rawUrl;
+export function resolveSocketUrl(overrideUrl?: string): string {
+  const envUrl = overrideUrl || process.env.NEXT_PUBLIC_WS_URL;
+  const fallback = "https://aquarescue-backend.onrender.com";
+  const raw = envUrl && envUrl.trim() !== "" ? envUrl : fallback;
+  // Standardize wss:// or ws:// to https:// or http:// for Socket.io engine client
+  return raw.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
 }
 
+export const getResolvedWsUrl = resolveSocketUrl;
+
 // Single unified Socket.io client instance
-export const socket: Socket = io(getResolvedWsUrl(), {
-  transports: ['websocket', 'polling'],
+export const socket: Socket = io(resolveSocketUrl(), {
+  transports: ['polling', 'websocket'], // Force polling handshake before upgrading
+  upgrade: true,
   autoConnect: true,
   reconnectionAttempts: Infinity,
+  withCredentials: true,
 });
 
 export function useSocketTelemetry(serverUrl?: string) {
@@ -292,14 +296,16 @@ export function useSocketTelemetry(serverUrl?: string) {
 
   // Dynamic Socket Connection Management
   useEffect(() => {
-    const targetEndpoint = getResolvedWsUrl(serverUrl);
+    const targetEndpoint = resolveSocketUrl(serverUrl);
     console.log("[AquaRescue Socket] Connecting to endpoint:", targetEndpoint);
     addLog('SYSTEM', `Initializing Socket.io client to endpoint: ${targetEndpoint}`);
 
     const socketInstance = io(targetEndpoint, {
-      transports: ['websocket', 'polling'],
+      transports: ['polling', 'websocket'], // Force polling handshake before upgrading
+      upgrade: true,
       autoConnect: true,
       reconnectionAttempts: Infinity,
+      withCredentials: true,
     });
 
     socketRef.current = socketInstance;
