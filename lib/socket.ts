@@ -3,7 +3,7 @@
  * 
  * Features:
  * - Socket.io auto-connecting to NEXT_PUBLIC_WS_URL or fallback wss://aquarescue-backend.onrender.com
- * - Single unified Socket.io client instance export
+ * - Dynamic socket management & reconnection safety
  * - Fallback transport compatibility: ['websocket', 'polling']
  * - Reconnection attempts: Infinity
  * - Sub-100ms useRef high-frequency state buffering & RAF frame throttling
@@ -76,23 +76,26 @@ export interface AquaRescueState {
   serverUrl: string;
 }
 
-// Environment bindings & dynamic connection URL
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
-export const SOCKET_URL = WS_URL;
-
-// Single unified Socket.io client instance
-export const socket: Socket = io(WS_URL, {
-  transports: ['websocket', 'polling'],
-  autoConnect: true,
-  reconnectionAttempts: Infinity,
-});
+// Environment bindings & dynamic connection URL fallback
+export const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
 
 const INITIAL_VICTIM: GPSCoordinate = { lat: 17.385044, lng: 78.486671 };
 const INITIAL_DRONE: GPSCoordinate = { lat: 17.387544, lng: 78.489171 };
 const INITIAL_BUOY: GPSCoordinate = { lat: 17.383044, lng: 78.485171 };
 const INITIAL_RESPONDER: GPSCoordinate = { lat: 17.382044, lng: 78.488671 };
 
-export function useSocketTelemetry(serverUrl: string = WS_URL) {
+// Helper to sanitize connection URL protocol for Socket.io
+function getSanitizedUrl(targetUrl?: string): string {
+  const url = targetUrl || process.env.NEXT_PUBLIC_WS_URL || "wss://aquarescue-backend.onrender.com";
+  // Convert ws:// or wss:// to http:// or https:// for socket.io client origin resolution
+  if (url.startsWith('wss://')) return url.replace('wss://', 'https://');
+  if (url.startsWith('ws://')) return url.replace('ws://', 'http://');
+  return url;
+}
+
+export function useSocketTelemetry(serverUrl: string = DEFAULT_WS_URL) {
+  const socketRef = useRef<Socket | null>(null);
+
   // High-frequency useRef buffer for 100ms telemetry ticks
   const telemetryBufferRef = useRef<TelemetryData | null>(null);
   const kalmanRef = useRef<KalmanFilter2D>(new KalmanFilter2D(1e-5, 5e-5));
@@ -101,7 +104,7 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
 
   // Main UI State
   const [state, setState] = useState<AquaRescueState>({
-    isConnected: socket.connected,
+    isConnected: false,
     activeDistress: false,
     puckId: 'PUCK-ALPHA-04',
     rawLocation: INITIAL_VICTIM,
@@ -280,13 +283,22 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
     audioVoiceEnabledRef.current = state.audioVoiceEnabled;
   }, [state.audioVoiceEnabled]);
 
-  // Socket Connection Listeners
+  // Dynamic Socket Connection Management
   useEffect(() => {
-    addLog('SYSTEM', `Bound WebSocket client to ${serverUrl}`);
+    const targetEndpoint = getSanitizedUrl(serverUrl);
+    addLog('SYSTEM', `Initializing Socket.io client to endpoint: ${targetEndpoint}`);
+
+    const socketInstance = io(targetEndpoint, {
+      transports: ['websocket', 'polling'],
+      autoConnect: true,
+      reconnectionAttempts: Infinity,
+    });
+
+    socketRef.current = socketInstance;
 
     const onConnect = () => {
       setState(prev => ({ ...prev, isConnected: true }));
-      addLog('SYSTEM', `Connected to AquaRescue Socket.io Server (${socket.id})`);
+      addLog('SYSTEM', `Connected to AquaRescue Socket.io Server (${socketInstance.id})`);
     };
 
     const onDisconnect = () => {
@@ -321,18 +333,20 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
       }
     };
 
-    if (socket.connected) {
+    if (socketInstance.connected) {
       onConnect();
     }
 
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('DISTRESS_TRIGGERED', onDistressTriggered);
+    socketInstance.on('connect', onConnect);
+    socketInstance.on('disconnect', onDisconnect);
+    socketInstance.on('DISTRESS_TRIGGERED', onDistressTriggered);
 
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('DISTRESS_TRIGGERED', onDistressTriggered);
+      socketInstance.off('connect', onConnect);
+      socketInstance.off('disconnect', onDisconnect);
+      socketInstance.off('DISTRESS_TRIGGERED', onDistressTriggered);
+      socketInstance.disconnect();
+      socketRef.current = null;
     };
   }, [serverUrl, processTelemetry, addLog]);
 
@@ -354,8 +368,8 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
       }
     };
 
-    if (socket.connected) {
-      socket.emit('EXECUTE_RESCUE', payload);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('EXECUTE_RESCUE', payload);
     }
     setState(prev => ({
       ...prev,
@@ -374,8 +388,8 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
       location: state.filteredLocation,
       timestamp: Date.now()
     };
-    if (socket.connected) {
-      socket.emit('OVERRIDE_DISPATCH', payload);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('OVERRIDE_DISPATCH', payload);
     }
     setState(prev => ({
       ...prev,
@@ -391,8 +405,8 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
       target_coords: state.filteredLocation,
       timestamp: Date.now()
     };
-    if (socket.connected) {
-      socket.emit('MANUAL_PAYLOAD_DROP', payload);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('MANUAL_PAYLOAD_DROP', payload);
     }
     setState(prev => ({
       ...prev,
@@ -435,8 +449,8 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
       aiBriefing: null,
       hydrodynamics: null
     }));
-    if (socket.connected) {
-      socket.emit('RESOLVE_INCIDENT', { puck_id: state.puckId });
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('RESOLVE_INCIDENT', { puck_id: state.puckId });
     }
     addLog('SYSTEM', `Incident ${state.puckId} RESOLVED & System Reset`);
   }, [state.puckId, addLog]);
@@ -468,8 +482,8 @@ export function useSocketTelemetry(serverUrl: string = WS_URL) {
       timestamp: Date.now()
     };
 
-    if (socket.connected) {
-      socket.emit('SIMULATE_TELEMETRY', mockPayload);
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('SIMULATE_TELEMETRY', mockPayload);
     } else {
       processTelemetry(mockPayload);
       addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
