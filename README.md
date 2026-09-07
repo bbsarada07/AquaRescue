@@ -46,7 +46,7 @@ To make testing accessible without physical hardware components, this repository
    * Install the **Wokwi Simulator** extension in VS Code / Antigravity IDE.
    * Extract the `.zip` contents into your workspace root.
    * Press `F1` and select **Wokwi: Start Simulator**.
-   * Open `http://localhost:5000` to watch the simulated sensor data reflect live on the command dashboard.
+   * Open `http://localhost:3000` to watch the simulated sensor data reflect live on the command dashboard.
 
 
 
@@ -178,7 +178,7 @@ During catastrophic flood events, severe cyclones, and maritime accidents, local
       ```
    4. Access the Application:
       ```
-      Open your browser and navigate to http://localhost:5000 (or http://localhost:3000).
+      Open your browser and navigate to http://localhost:3000.
       ```
 ---
 ## 👥 Authors & Team : Zenthra
