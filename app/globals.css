@@ -142,7 +142,53 @@ body {
   from { width: 0; }
 }
 
+/* Tactical dark mode filter for OpenStreetMap tiles */
+.leaflet-dark-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.1) !important;
+}
+
+/* ── Custom Marker Floating & Glow Animations ───────────────────────────── */
+@keyframes markerFloatBob {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(0.8deg);
+  }
+}
+
+@keyframes markerFloatSway {
+  0%, 100% {
+    transform: translateY(0px) rotate(-1.2deg);
+  }
+  50% {
+    transform: translateY(-2.5px) rotate(1.2deg);
+  }
+}
+
+@keyframes markerFloatSwayAlt {
+  0%, 100% {
+    transform: translateY(-2px) rotate(1deg);
+  }
+  50% {
+    transform: translateY(2px) rotate(-1deg);
+  }
+}
+
+.marker-float-idle {
+  animation: markerFloatBob 2.8s ease-in-out infinite;
+}
+
+.marker-float-sway {
+  animation: markerFloatSway 3.2s ease-in-out infinite;
+}
+
+.marker-float-sway-alt {
+  animation: markerFloatSwayAlt 3.0s ease-in-out infinite;
+}
+
 /* Thermal heatmap filter for keyless Leaflet map tiles */
 .leaflet-thermal-tiles {
-  filter: sepia(100%) hue-rotate(300deg) saturate(350%) contrast(140%) brightness(0.85) !important;
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.1) sepia(100%) hue-rotate(300deg) saturate(350%) !important;
 }
+

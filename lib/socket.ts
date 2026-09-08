@@ -17,6 +17,11 @@ import { io, Socket } from 'socket.io-client';
 import { KalmanFilter2D, FilteredResult, GPSCoordinate } from './kalman';
 import { calculateDriftCompensatedVector, HydrodynamicVectorResult } from './hydrodynamics';
 import { generateTacticalBriefing, speakBriefing, BriefingResponse } from './gemini';
+import {
+  stepAssetTracking,
+  createInitialTrackingState,
+  TrackingEngineState,
+} from './trackingEngine';
 
 export interface TelemetryData {
   event: string;
@@ -112,51 +117,60 @@ export function useSocketTelemetry(serverUrl?: string) {
   const kalmanRef = useRef<KalmanFilter2D>(new KalmanFilter2D(1e-5, 5e-5));
   const rafIdRef = useRef<number | null>(null);
   const lastStateUpdateMsRef = useRef<number>(0);
+  const trackingEngineRef = useRef<TrackingEngineState>(createInitialTrackingState());
+  const lastTickTimeRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   // Main UI State
-  const [state, setState] = useState<AquaRescueState>({
-    isConnected: false,
-    activeDistress: false,
-    puckId: 'PUCK-ALPHA-04',
-    rawLocation: INITIAL_VICTIM,
-    filteredLocation: {
-      lat: INITIAL_VICTIM.lat,
-      lng: INITIAL_VICTIM.lng,
-      latVelocity: 0,
-      lngVelocity: 0,
-      variance: 0.1,
-      noiseDeltaMeters: 0
-    },
-    droneLocation: INITIAL_DRONE,
-    droneHeading: 225,
-    buoyLocation: INITIAL_BUOY,
-    buoyHeading: 45,
-    responderLocation: INITIAL_RESPONDER,
-    sensorData: {
-      screechConfidence: 0.96,
-      thermalDelta: 5.2,
-      waterVelocity: 1.8,
-      driftHeading: 140,
-      gimbalLocked: true,
-      payloadReady: true
-    },
-    hydrodynamics: null,
-    aiBriefing: null,
-    dronePath: [INITIAL_DRONE],
-    buoyPath: [INITIAL_BUOY],
-    responderPath: [INITIAL_RESPONDER],
-    droneStatus: 'STANDBY',
-    buoyStatus: 'STANDBY',
-    responderStatus: 'STANDBY',
-    payloadStatus: 'STANDBY',
-    payloadStatusTimestamp: Date.now(),
-    lastPacketTimestamp: null,
-    missionStartTime: null,
-    missionId: null,
-    eventLogs: [],
-    audioVoiceEnabled: true,
-    serverUrl: getResolvedWsUrl(serverUrl)
+  const [state, setState] = useState<AquaRescueState>(() => {
+    const initTracking = createInitialTrackingState();
+    return {
+      isConnected: false,
+      activeDistress: false,
+      puckId: 'PUCK-ALPHA-04',
+      rawLocation: INITIAL_VICTIM,
+      filteredLocation: {
+        lat: INITIAL_VICTIM.lat,
+        lng: INITIAL_VICTIM.lng,
+        latVelocity: 0,
+        lngVelocity: 0,
+        variance: 0.1,
+        noiseDeltaMeters: 0
+      },
+      droneLocation: { lat: initTracking.drone.lat, lng: initTracking.drone.lng },
+      droneHeading: initTracking.drone.heading,
+      buoyLocation: { lat: initTracking.buoy.lat, lng: initTracking.buoy.lng },
+      buoyHeading: initTracking.buoy.heading,
+      responderLocation: { lat: initTracking.boat.lat, lng: initTracking.boat.lng },
+      responderHeading: initTracking.boat.heading,
+      sensorData: {
+        screechConfidence: 0.96,
+        thermalDelta: 5.2,
+        waterVelocity: 1.8,
+        driftHeading: 140,
+        gimbalLocked: true,
+        payloadReady: true
+      },
+      hydrodynamics: null,
+      aiBriefing: null,
+      dronePath: initTracking.drone.path,
+      buoyPath: initTracking.buoy.path,
+      responderPath: initTracking.boat.path,
+      droneStatus: 'STANDBY',
+      buoyStatus: 'STANDBY',
+      responderStatus: 'STANDBY',
+      payloadStatus: 'STANDBY',
+      payloadStatusTimestamp: Date.now(),
+      lastPacketTimestamp: null,
+      missionStartTime: null,
+      missionId: null,
+      eventLogs: [],
+      audioVoiceEnabled: true,
+      serverUrl: getResolvedWsUrl(serverUrl)
+    };
   });
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const addLog = useCallback((type: LogEntry['type'], message: string, details?: string) => {
     const entry: LogEntry = {
@@ -177,105 +191,105 @@ export function useSocketTelemetry(serverUrl?: string) {
     telemetryBufferRef.current = data;
   }, []);
 
-  // Sub-100ms UI Throttling Loop using requestAnimationFrame
+  // Real-time tracking physics & UI update loop using requestAnimationFrame
   useEffect(() => {
     let mounted = true;
 
     const tick = (now: number) => {
       if (!mounted) return;
 
-      if (now - lastStateUpdateMsRef.current >= 50) {
-        lastStateUpdateMsRef.current = now;
+      const elapsed = now - lastTickTimeRef.current;
+      if (elapsed >= 35) {
+        const dtSec = Math.min(elapsed / 1000, 0.1);
+        lastTickTimeRef.current = now;
 
         const data = telemetryBufferRef.current;
+        let kalmanOut: FilteredResult | null = null;
         if (data) {
-          const kalmanOut = kalmanRef.current.update(
+          kalmanOut = kalmanRef.current.update(
             data.location.lat,
             data.location.lng,
             data.timestamp || Date.now()
           );
+        }
 
-          setState(prev => {
-            const newDroneLat = prev.droneLocation.lat + (kalmanOut.lat - prev.droneLocation.lat) * 0.02;
-            const newDroneLng = prev.droneLocation.lng + (kalmanOut.lng - prev.droneLocation.lng) * 0.02;
-            const newBuoyLat = prev.buoyLocation.lat + (kalmanOut.lat - prev.buoyLocation.lat) * 0.015;
-            const newBuoyLng = prev.buoyLocation.lng + (kalmanOut.lng - prev.buoyLocation.lng) * 0.015;
-            const newResponderLat = prev.responderLocation.lat + (kalmanOut.lat - prev.responderLocation.lat) * 0.008;
-            const newResponderLng = prev.responderLocation.lng + (kalmanOut.lng - prev.responderLocation.lng) * 0.008;
+        setState(prev => {
+          const currentTarget = kalmanOut || prev.filteredLocation;
 
-            const updatedDronePath = [...prev.dronePath, { lat: newDroneLat, lng: newDroneLng }].slice(-40);
-            const updatedBuoyPath = [...prev.buoyPath, { lat: newBuoyLat, lng: newBuoyLng }].slice(-40);
-            const updatedResponderPath = [...prev.responderPath, { lat: newResponderLat, lng: newResponderLng }].slice(-40);
+          // Step tracking engine forward
+          trackingEngineRef.current = stepAssetTracking(
+            trackingEngineRef.current,
+            currentTarget,
+            prev.activeDistress,
+            dtSec
+          );
 
-            const hydro = calculateDriftCompensatedVector(
-              { lat: kalmanOut.lat, lng: kalmanOut.lng },
-              data.sensor_data.water_velocity_ms,
-              data.sensor_data.drift_heading_deg,
-              { lat: newBuoyLat, lng: newBuoyLng },
-              { lat: newDroneLat, lng: newDroneLng }
-            );
+          const { drone, buoy, boat } = trackingEngineRef.current;
 
-            const droneDist = KalmanFilter2D.haversineDistanceMeters(newDroneLat, newDroneLng, kalmanOut.lat, kalmanOut.lng);
-            const buoyDist = KalmanFilter2D.haversineDistanceMeters(newBuoyLat, newBuoyLng, kalmanOut.lat, kalmanOut.lng);
-            const responderDist = KalmanFilter2D.haversineDistanceMeters(newResponderLat, newResponderLng, kalmanOut.lat, kalmanOut.lng);
+          // Check if payload drop should deploy near victim
+          const droneDist = KalmanFilter2D.haversineDistanceMeters(
+            drone.lat,
+            drone.lng,
+            currentTarget.lat,
+            currentTarget.lng
+          );
 
-            let nextDroneStatus = prev.droneStatus;
-            if (prev.droneStatus === 'DISPATCHED') nextDroneStatus = 'EN_ROUTE';
-            if ((prev.droneStatus === 'DISPATCHED' || prev.droneStatus === 'EN_ROUTE') && droneDist < 8) {
-              nextDroneStatus = 'TARGET_REACHED';
-            }
+          let nextPayloadStatus = prev.payloadStatus;
+          let nextPayloadTimestamp = prev.payloadStatusTimestamp;
+          if (
+            (drone.status === 'TARGET_REACHED' || droneDist < 14) &&
+            (prev.payloadStatus === 'RELEASED' || prev.payloadStatus === 'EN_ROUTE')
+          ) {
+            nextPayloadStatus = 'CONFIRMED_DEPLOYED';
+            nextPayloadTimestamp = Date.now();
+          }
 
-            let nextBuoyStatus = prev.buoyStatus;
-            if (prev.buoyStatus === 'DISPATCHED') nextBuoyStatus = 'EN_ROUTE';
-            if ((prev.buoyStatus === 'DISPATCHED' || prev.buoyStatus === 'EN_ROUTE') && buoyDist < 8) {
-              nextBuoyStatus = 'TARGET_REACHED';
-            }
+          const hydro = (data && kalmanOut)
+            ? calculateDriftCompensatedVector(
+                { lat: kalmanOut.lat, lng: kalmanOut.lng },
+                data.sensor_data.water_velocity_ms,
+                data.sensor_data.drift_heading_deg,
+                { lat: buoy.lat, lng: buoy.lng },
+                { lat: drone.lat, lng: drone.lng }
+              )
+            : prev.hydrodynamics;
 
-            let nextResponderStatus = prev.responderStatus;
-            if (prev.responderStatus === 'DISPATCHED') nextResponderStatus = 'EN_ROUTE';
-            if ((prev.responderStatus === 'DISPATCHED' || prev.responderStatus === 'EN_ROUTE') && responderDist < 8) {
-              nextResponderStatus = 'TARGET_REACHED';
-            }
-
-            let nextPayloadStatus = prev.payloadStatus;
-            let nextPayloadTimestamp = prev.payloadStatusTimestamp;
-            if ((nextDroneStatus === 'TARGET_REACHED' || droneDist < 12) && (prev.payloadStatus === 'RELEASED' || prev.payloadStatus === 'EN_ROUTE')) {
-              nextPayloadStatus = 'CONFIRMED_DEPLOYED';
-              nextPayloadTimestamp = Date.now();
-            }
-
-            return {
-              ...prev,
+          return {
+            ...prev,
+            ...(data && kalmanOut ? {
               activeDistress: true,
               puckId: data.puck_id,
               rawLocation: data.location,
               filteredLocation: kalmanOut,
-              droneLocation: { lat: newDroneLat, lng: newDroneLng },
-              buoyLocation: { lat: newBuoyLat, lng: newBuoyLng },
-              responderLocation: { lat: newResponderLat, lng: newResponderLng },
               sensorData: {
                 screechConfidence: data.sensor_data.audio_screech_confidence,
                 thermalDelta: data.sensor_data.thermal_delta_c,
                 waterVelocity: data.sensor_data.water_velocity_ms,
                 driftHeading: data.sensor_data.drift_heading_deg,
                 gimbalLocked: prev.sensorData.gimbalLocked,
-                payloadReady: prev.sensorData.payloadReady
+                payloadReady: prev.sensorData.payloadReady,
               },
               hydrodynamics: hydro,
-              dronePath: updatedDronePath,
-              buoyPath: updatedBuoyPath,
-              responderPath: updatedResponderPath,
-              droneStatus: nextDroneStatus,
-              buoyStatus: nextBuoyStatus,
-              responderStatus: nextResponderStatus,
-              payloadStatus: nextPayloadStatus,
-              payloadStatusTimestamp: nextPayloadTimestamp,
               lastPacketTimestamp: data.timestamp,
               missionStartTime: prev.missionStartTime || Date.now(),
-              missionId: prev.missionId || `AR-${Math.floor(100 + Math.random() * 899)}`
-            };
-          });
-        }
+              missionId: prev.missionId || `AR-${Math.floor(100 + Math.random() * 899)}`,
+            } : {}),
+            droneLocation: { lat: drone.lat, lng: drone.lng },
+            droneHeading: drone.heading,
+            buoyLocation: { lat: buoy.lat, lng: buoy.lng },
+            buoyHeading: buoy.heading,
+            responderLocation: { lat: boat.lat, lng: boat.lng },
+            responderHeading: boat.heading,
+            dronePath: drone.path,
+            buoyPath: buoy.path,
+            responderPath: boat.path,
+            droneStatus: drone.status,
+            buoyStatus: buoy.status,
+            responderStatus: boat.status,
+            payloadStatus: nextPayloadStatus,
+            payloadStatusTimestamp: nextPayloadTimestamp,
+          };
+        });
       }
 
       rafIdRef.current = requestAnimationFrame(tick);
@@ -322,17 +336,30 @@ export function useSocketTelemetry(serverUrl?: string) {
 
     const onDistressTriggered = async (data: TelemetryData) => {
       processTelemetry(data);
+
+      const droneLoc = stateRef.current.droneLocation;
+      const buoyLoc = stateRef.current.buoyLocation;
+      const respLoc = stateRef.current.responderLocation;
+
+      const dDist = KalmanFilter2D.haversineDistanceMeters(droneLoc.lat, droneLoc.lng, data.location.lat, data.location.lng);
+      const bDist = KalmanFilter2D.haversineDistanceMeters(buoyLoc.lat, buoyLoc.lng, data.location.lat, data.location.lng);
+      const rDist = KalmanFilter2D.haversineDistanceMeters(respLoc.lat, respLoc.lng, data.location.lat, data.location.lng);
+
+      const dEta = Math.max(Math.round(dDist / 28), 1);
+      const bEta = Math.max(Math.round(bDist / 6.5), 1);
+      const rEta = Math.max(Math.round(rDist / 14), 1);
+
       addLog(
         'ALERT',
         `DISTRESS TRIGGERED by ${data.puck_id}`,
-        `Lat: ${data.location.lat.toFixed(6)}, Lng: ${data.location.lng.toFixed(6)} | Audio: ${(data.sensor_data.audio_screech_confidence * 100).toFixed(0)}%`
+        `Target: [${data.location.lat.toFixed(6)}, ${data.location.lng.toFixed(6)}] | Audio Conf: ${(data.sensor_data.audio_screech_confidence * 100).toFixed(0)}%`
       );
 
-      addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
-      addLog('SYSTEM', 'UAV-RESCUE-01 INITIAL ESTIMATED ETA: 18 SEC');
-      addLog('SYSTEM', 'BUOY-HYDRO-02 INITIAL ESTIMATED ETA: 31 SEC');
-      addLog('SYSTEM', 'RESPONSE TEAM INITIAL ESTIMATED ETA: 1M 42S');
-      addLog('AI', 'UAV-RESCUE-01 RECOMMENDED AS FASTEST RESPONSE');
+      addLog('SYSTEM', 'ETA ENGINE INITIALIZED WITH LIVE ASSET POSITIONS');
+      addLog('SYSTEM', `UAV-RESCUE-01 [${droneLoc.lat.toFixed(5)}, ${droneLoc.lng.toFixed(5)}] -> Dist: ${Math.round(dDist)}m | ETA: ${dEta}s`);
+      addLog('SYSTEM', `BUOY-HYDRO-02 [${buoyLoc.lat.toFixed(5)}, ${buoyLoc.lng.toFixed(5)}] -> Dist: ${Math.round(bDist)}m | ETA: ${bEta}s`);
+      addLog('SYSTEM', `RESCUE-TEAM-01 [${respLoc.lat.toFixed(5)}, ${respLoc.lng.toFixed(5)}] -> Dist: ${Math.round(rDist)}m | ETA: ${rEta}s`);
+      addLog('AI', `${dEta <= bEta && dEta <= rEta ? 'UAV-RESCUE-01' : bEta <= rEta ? 'BUOY-HYDRO-02' : 'RESCUE-TEAM-01'} RECOMMENDED AS FASTEST RESPONSE`);
 
       try {
         const briefing = await generateTacticalBriefing(data);
@@ -385,6 +412,11 @@ export function useSocketTelemetry(serverUrl?: string) {
     if (socketRef.current?.connected) {
       socketRef.current.emit('EXECUTE_RESCUE', payload);
     }
+    
+    // Update live tracking engine state
+    trackingEngineRef.current.drone.status = 'DISPATCHED';
+    trackingEngineRef.current.buoy.status = 'DISPATCHED';
+
     setState(prev => ({
       ...prev,
       droneStatus: 'DISPATCHED',
@@ -405,6 +437,9 @@ export function useSocketTelemetry(serverUrl?: string) {
     if (socketRef.current?.connected) {
       socketRef.current.emit('OVERRIDE_DISPATCH', payload);
     }
+
+    trackingEngineRef.current.boat.status = 'DISPATCHED';
+
     setState(prev => ({
       ...prev,
       responderStatus: 'DISPATCHED'
@@ -422,6 +457,9 @@ export function useSocketTelemetry(serverUrl?: string) {
     if (socketRef.current?.connected) {
       socketRef.current.emit('MANUAL_PAYLOAD_DROP', payload);
     }
+    
+    trackingEngineRef.current.drone.status = 'DISPATCHED';
+
     setState(prev => ({
       ...prev,
       droneStatus: 'DISPATCHED',
@@ -434,6 +472,9 @@ export function useSocketTelemetry(serverUrl?: string) {
   const resolveIncident = useCallback(() => {
     kalmanRef.current.reset(INITIAL_VICTIM.lat, INITIAL_VICTIM.lng);
     telemetryBufferRef.current = null;
+    const resetTracking = createInitialTrackingState();
+    trackingEngineRef.current = resetTracking;
+
     setState(prev => ({
       ...prev,
       activeDistress: false,
@@ -446,12 +487,15 @@ export function useSocketTelemetry(serverUrl?: string) {
         variance: 0.1,
         noiseDeltaMeters: 0
       },
-      droneLocation: INITIAL_DRONE,
-      buoyLocation: INITIAL_BUOY,
-      responderLocation: INITIAL_RESPONDER,
-      dronePath: [INITIAL_DRONE],
-      buoyPath: [INITIAL_BUOY],
-      responderPath: [INITIAL_RESPONDER],
+      droneLocation: { lat: resetTracking.drone.lat, lng: resetTracking.drone.lng },
+      droneHeading: resetTracking.drone.heading,
+      buoyLocation: { lat: resetTracking.buoy.lat, lng: resetTracking.buoy.lng },
+      buoyHeading: resetTracking.buoy.heading,
+      responderLocation: { lat: resetTracking.boat.lat, lng: resetTracking.boat.lng },
+      responderHeading: resetTracking.boat.heading,
+      dronePath: resetTracking.drone.path,
+      buoyPath: resetTracking.buoy.path,
+      responderPath: resetTracking.boat.path,
       droneStatus: 'STANDBY',
       buoyStatus: 'STANDBY',
       responderStatus: 'STANDBY',
@@ -468,6 +512,7 @@ export function useSocketTelemetry(serverUrl?: string) {
     }
     addLog('SYSTEM', `Incident ${state.puckId} RESOLVED & System Reset`);
   }, [state.puckId, addLog]);
+
 
   const toggleAudioVoice = useCallback(() => {
     setState(prev => {
@@ -500,11 +545,24 @@ export function useSocketTelemetry(serverUrl?: string) {
       socketRef.current.emit('SIMULATE_TELEMETRY', mockPayload);
     } else {
       processTelemetry(mockPayload);
-      addLog('SYSTEM', 'ETA ENGINE INITIALIZED');
-      addLog('SYSTEM', 'UAV-RESCUE-01 INITIAL ESTIMATED ETA: 18 SEC');
-      addLog('SYSTEM', 'BUOY-HYDRO-02 INITIAL ESTIMATED ETA: 31 SEC');
-      addLog('SYSTEM', 'RESPONSE TEAM INITIAL ESTIMATED ETA: 1M 42S');
-      addLog('AI', 'UAV-RESCUE-01 RECOMMENDED AS FASTEST RESPONSE');
+
+      const droneLoc = stateRef.current.droneLocation;
+      const buoyLoc = stateRef.current.buoyLocation;
+      const respLoc = stateRef.current.responderLocation;
+
+      const dDist = KalmanFilter2D.haversineDistanceMeters(droneLoc.lat, droneLoc.lng, mockPayload.location.lat, mockPayload.location.lng);
+      const bDist = KalmanFilter2D.haversineDistanceMeters(buoyLoc.lat, buoyLoc.lng, mockPayload.location.lat, mockPayload.location.lng);
+      const rDist = KalmanFilter2D.haversineDistanceMeters(respLoc.lat, respLoc.lng, mockPayload.location.lat, mockPayload.location.lng);
+
+      const dEta = Math.max(Math.round(dDist / 28), 1);
+      const bEta = Math.max(Math.round(bDist / 6.5), 1);
+      const rEta = Math.max(Math.round(rDist / 14), 1);
+
+      addLog('SYSTEM', 'ETA ENGINE INITIALIZED WITH LIVE ASSET POSITIONS');
+      addLog('SYSTEM', `UAV-RESCUE-01 [${droneLoc.lat.toFixed(5)}, ${droneLoc.lng.toFixed(5)}] -> Dist: ${Math.round(dDist)}m | ETA: ${dEta}s`);
+      addLog('SYSTEM', `BUOY-HYDRO-02 [${buoyLoc.lat.toFixed(5)}, ${buoyLoc.lng.toFixed(5)}] -> Dist: ${Math.round(bDist)}m | ETA: ${bEta}s`);
+      addLog('SYSTEM', `RESCUE-TEAM-01 [${respLoc.lat.toFixed(5)}, ${respLoc.lng.toFixed(5)}] -> Dist: ${Math.round(rDist)}m | ETA: ${rEta}s`);
+      addLog('AI', `${dEta <= bEta && dEta <= rEta ? 'UAV-RESCUE-01' : bEta <= rEta ? 'BUOY-HYDRO-02' : 'RESCUE-TEAM-01'} RECOMMENDED AS FASTEST RESPONSE`);
 
       generateTacticalBriefing(mockPayload).then(briefing => {
         setState(prev => ({ ...prev, aiBriefing: briefing }));

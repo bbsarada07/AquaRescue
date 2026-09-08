@@ -412,6 +412,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                   </div>
                   <div className="flex justify-between text-gray-400 text-[10px]">
                     <span>DIST: <span className="text-white font-bold">{droneDist != null ? `${Math.round(droneDist)}m` : '—'}</span></span>
+                    <span className="font-mono text-cyan-300 font-semibold">{droneLocation ? `${droneLocation.lat.toFixed(5)}, ${droneLocation.lng.toFixed(5)}` : '17.38754, 78.48917'}</span>
                     <span>EST. ETA: <span className={`font-bold ${
                       reached ? 'text-[#10B981]' : isFastest ? 'text-[#10B981]' : 'text-gray-200'
                     }`}>{reached ? '0s' : formatEta(droneEtaSec)}</span></span>
@@ -451,6 +452,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                   </div>
                   <div className="flex justify-between text-gray-400 text-[10px]">
                     <span>DIST: <span className="text-white font-bold">{buoyDist != null ? `${Math.round(buoyDist)}m` : '—'}</span></span>
+                    <span className="font-mono text-amber-300 font-semibold">{buoyLocation ? `${buoyLocation.lat.toFixed(5)}, ${buoyLocation.lng.toFixed(5)}` : '17.38304, 78.48517'}</span>
                     <span>SIMULATED ETA: <span className={`font-bold ${
                       reached ? 'text-[#10B981]' : isFastest ? 'text-[#10B981]' : 'text-gray-200'
                     }`}>{reached ? '0s' : formatEta(buoyEtaSec)}</span></span>
@@ -490,6 +492,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                   </div>
                   <div className="flex justify-between text-gray-400 text-[10px]">
                     <span>DIST: <span className="text-white font-bold">{responderDist != null ? `${Math.round(responderDist)}m` : '—'}</span></span>
+                    <span className="font-mono text-purple-300 font-semibold">{responderLocation ? `${responderLocation.lat.toFixed(5)}, ${responderLocation.lng.toFixed(5)}` : '17.38204, 78.48867'}</span>
                     <span>EST. ETA: <span className={`font-bold ${
                       reached ? 'text-[#10B981]' : isFastest ? 'text-[#10B981]' : 'text-gray-200'
                     }`}>{reached ? '0s' : formatEta(responderEtaSec)}</span></span>

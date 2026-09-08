@@ -43,7 +43,7 @@ const LeafletMapView = dynamic(
     ssr: false,
     loading: () => (
       <div className="w-full h-full bg-[#090D16] flex items-center justify-center font-mono text-xs text-[#06B6D4]">
-        INITIALIZING TACTICAL CARTO MAP MESH...
+        INITIALIZING TACTICAL MAP MESH...
       </div>
     ),
   }
@@ -373,8 +373,11 @@ function DashboardContent() {
             filteredTarget={state.filteredLocation}
             rawTarget={state.rawLocation}
             droneLocation={state.droneLocation}
+            droneHeading={state.droneHeading}
             buoyLocation={state.buoyLocation}
+            buoyHeading={state.buoyHeading}
             responderLocation={state.responderLocation}
+            responderHeading={state.responderHeading}
             dronePath={state.dronePath}
             buoyPath={state.buoyPath}
             responderPath={state.responderPath}
@@ -404,6 +407,9 @@ function DashboardContent() {
               responderStatus={state.responderStatus}
               puckId={state.puckId}
               filteredLocation={state.filteredLocation}
+              droneLocation={state.droneLocation}
+              buoyLocation={state.buoyLocation}
+              responderLocation={state.responderLocation}
               sensorData={state.sensorData}
               activeDistress={state.activeDistress}
               onAutoDispatch={handleAutoDispatch}
@@ -419,10 +425,10 @@ function DashboardContent() {
                   mode={monitoringCameraMode}
                   onModeChange={setMonitoringCameraMode}
                   detectionConfidence={state.sensorData.screechConfidence * 100}
-                  targetLat={state.filteredLocation?.lat ?? 17.385044}
-                  targetLng={state.filteredLocation?.lng ?? 78.486671}
+                  targetLat={state.droneLocation.lat}
+                  targetLng={state.droneLocation.lng}
                   altitudeM={48}
-                  headingDeg={214}
+                  headingDeg={Math.round(state.droneHeading)}
                   signalDbm={-42}
                   distanceToTarget={120}
                   droneId="UAV-RESCUE-01"

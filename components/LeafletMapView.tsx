@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMap, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { Compass, Locate, Sun, Flame, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -11,8 +11,11 @@ export interface LeafletMapViewProps {
   filteredTarget: FilteredResult | GPSCoordinate | null;
   rawTarget: GPSCoordinate | null;
   droneLocation: GPSCoordinate | null;
+  droneHeading?: number;
   buoyLocation: GPSCoordinate | null;
+  buoyHeading?: number;
   responderLocation?: GPSCoordinate | null;
+  responderHeading?: number;
   dronePath: GPSCoordinate[];
   buoyPath: GPSCoordinate[];
   responderPath?: GPSCoordinate[];
@@ -101,54 +104,122 @@ const createRawGpsIcon = () =>
     iconAnchor: [12, 12],
   });
 
-const createDroneIcon = () =>
-  L.divIcon({
-    className: 'custom-leaflet-icon',
-    html: `
-      <div class="relative flex items-center justify-center w-10 h-10 -ml-5 -mt-5">
-        <div class="w-5 h-5 bg-[#06B6D4] border-2 border-white rotate-45 shadow-lg flex items-center justify-center">
-          <div class="w-1.5 h-1.5 bg-black rounded-full"></div>
-        </div>
-        <div class="absolute -bottom-6 whitespace-nowrap bg-[#090D16]/90 text-[#06B6D4] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#06B6D4]/50 shadow-xl">
-          UAV-RESCUE-01
-        </div>
-      </div>
-    `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-  });
+const createDroneIcon = (status: string = 'STANDBY', heading: number = 0) => {
+  const isEnRoute = status === 'DISPATCHED' || status === 'EN_ROUTE' || status === 'ACTIVE' || status === 'NAVIGATING';
+  const isReached = status === 'TARGET_REACHED' || status === 'ARRIVED';
+  const ringColor = isReached ? '#10B981' : '#06B6D4';
+  const glowShadow = isReached ? '0 0 14px rgba(16,185,129,0.7)' : isEnRoute ? '0 0 20px rgba(6,182,212,0.95)' : '0 0 10px rgba(6,182,212,0.5)';
 
-const createBuoyIcon = () =>
-  L.divIcon({
+  return L.divIcon({
     className: 'custom-leaflet-icon',
     html: `
-      <div class="relative flex items-center justify-center w-10 h-10 -ml-5 -mt-5">
-        <div class="w-5 h-5 bg-[#F59E0B] rounded-full border-2 border-white shadow-lg flex items-center justify-center animate-pulse">
-          <div class="w-2 h-2 bg-black rounded-full"></div>
+      <div class="relative flex flex-col items-center justify-center -ml-6 -mt-6">
+        <div class="relative flex items-center justify-center w-12 h-12">
+          ${isEnRoute ? '<span class="absolute inline-flex h-12 w-12 rounded-full bg-cyan-400 opacity-75 animate-ping"></span>' : ''}
+          <div class="relative w-11 h-11 rounded-full bg-[#090D16]/90 border-2 flex items-center justify-center transition-all shadow-xl" style="border-color: ${ringColor}; box-shadow: ${glowShadow};">
+            <img src="/drone.png" alt="UAV-RESCUE-01" class="w-[34px] h-[34px] object-contain drop-shadow pointer-events-none" style="transform: rotate(${Math.round(heading)}deg); transform-origin: center center; transition: transform 0.2s linear;" />
+          </div>
         </div>
-        <div class="absolute -bottom-6 whitespace-nowrap bg-[#090D16]/90 text-[#F59E0B] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#F59E0B]/50 shadow-xl">
-          BUOY-HYDRO-02
+        <div class="mt-1 whitespace-nowrap bg-[#090D16]/95 text-[#06B6D4] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#06B6D4]/50 shadow-xl flex items-center gap-1">
+          <span>UAV-RESCUE-01</span>
+          ${isEnRoute ? '<span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>' : isReached ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>' : ''}
         </div>
       </div>
     `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
+    iconSize: [48, 68],
+    iconAnchor: [24, 24],
   });
+};
 
-const createResponderIcon = () =>
-  L.divIcon({
+const createBuoyIcon = (status: string = 'STANDBY') => {
+  const isEnRoute = status === 'DISPATCHED' || status === 'EN_ROUTE' || status === 'ACTIVE' || status === 'NAVIGATING';
+  const isReached = status === 'TARGET_REACHED' || status === 'ARRIVED';
+  const ringColor = isReached ? '#10B981' : '#F59E0B';
+  const glowShadow = isReached ? '0 0 14px rgba(16,185,129,0.7)' : isEnRoute ? '0 0 20px rgba(245,158,11,0.95)' : '0 0 10px rgba(245,158,11,0.5)';
+
+  return L.divIcon({
     className: 'custom-leaflet-icon',
     html: `
-      <div class="relative flex items-center justify-center w-10 h-10 -ml-5 -mt-5">
-        <div class="w-0 h-0 border-l-[10px] border-r-[10px] border-b-[18px] border-l-transparent border-r-transparent border-b-[#A78BFA] drop-shadow-lg"></div>
-        <div class="absolute -bottom-6 whitespace-nowrap bg-[#090D16]/90 text-[#A78BFA] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#A78BFA]/50 shadow-xl">
-          RESCUE-TEAM-01
+      <div class="relative flex flex-col items-center justify-center -ml-6 -mt-6">
+        <div class="relative flex items-center justify-center w-12 h-12">
+          ${isEnRoute ? '<span class="absolute inline-flex h-12 w-12 rounded-full bg-amber-400 opacity-75 animate-ping"></span>' : ''}
+          <div class="relative w-11 h-11 rounded-full bg-[#090D16]/90 border-2 flex items-center justify-center transition-all shadow-xl" style="border-color: ${ringColor}; box-shadow: ${glowShadow};">
+            <img src="/buoy.png" alt="BUOY-HYDRO-02" class="w-[34px] h-[34px] object-contain drop-shadow pointer-events-none" />
+          </div>
+        </div>
+        <div class="mt-1 whitespace-nowrap bg-[#090D16]/95 text-[#F59E0B] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#F59E0B]/50 shadow-xl flex items-center gap-1">
+          <span>BUOY-HYDRO-02</span>
+          ${isEnRoute ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>' : isReached ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>' : ''}
         </div>
       </div>
     `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
+    iconSize: [48, 68],
+    iconAnchor: [24, 24],
   });
+};
+
+const createResponderIcon = (status: string = 'STANDBY', heading: number = 0) => {
+  const isEnRoute = status === 'DISPATCHED' || status === 'EN_ROUTE' || status === 'ACTIVE' || status === 'NAVIGATING';
+  const isReached = status === 'TARGET_REACHED' || status === 'ARRIVED';
+  const ringColor = isReached ? '#10B981' : '#A78BFA';
+  const glowShadow = isReached ? '0 0 14px rgba(16,185,129,0.7)' : isEnRoute ? '0 0 20px rgba(167,139,250,0.95)' : '0 0 10px rgba(167,139,250,0.5)';
+
+  return L.divIcon({
+    className: 'custom-leaflet-icon',
+    html: `
+      <div class="relative flex flex-col items-center justify-center -ml-6 -mt-6">
+        <div class="relative flex items-center justify-center w-12 h-12">
+          ${isEnRoute ? '<span class="absolute inline-flex h-12 w-12 rounded-full bg-purple-400 opacity-75 animate-ping"></span>' : ''}
+          <div class="relative w-11 h-11 rounded-full bg-[#090D16]/90 border-2 flex items-center justify-center transition-all shadow-xl" style="border-color: ${ringColor}; box-shadow: ${glowShadow};">
+            <img src="/rescue-boat.png" alt="RESCUE-TEAM-01" class="w-[34px] h-[34px] object-contain drop-shadow pointer-events-none" style="transform: rotate(${Math.round(heading)}deg); transform-origin: center center; transition: transform 0.2s linear;" />
+          </div>
+        </div>
+        <div class="mt-1 whitespace-nowrap bg-[#090D16]/95 text-[#A78BFA] font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border border-[#A78BFA]/50 shadow-xl flex items-center gap-1">
+          <span>RESCUE-TEAM-01</span>
+          ${isEnRoute ? '<span class="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>' : isReached ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>' : ''}
+        </div>
+      </div>
+    `,
+    iconSize: [48, 68],
+    iconAnchor: [24, 24],
+  });
+};
+
+// Sub-component for smooth animated glide between GPS coordinates
+interface SmoothAnimatedMarkerProps {
+  position: [number, number];
+  icon: L.DivIcon;
+  isMoving: boolean;
+  children?: React.ReactNode;
+}
+
+const SmoothAnimatedMarker: React.FC<SmoothAnimatedMarkerProps> = ({
+  position,
+  icon,
+  children,
+}) => {
+  const markerRef = useRef<L.Marker | null>(null);
+
+  useEffect(() => {
+    const marker = markerRef.current;
+    if (!marker) return;
+    marker.setLatLng(position);
+  }, [position[0], position[1]]);
+
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.setIcon(icon);
+    }
+  }, [icon]);
+
+  return (
+    <Marker ref={markerRef} position={position} icon={icon}>
+      {children}
+    </Marker>
+  );
+};
+
+
 
 export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
   filteredTarget,
@@ -156,6 +227,9 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
   droneLocation,
   buoyLocation,
   responderLocation = null,
+  droneHeading = 0,
+  buoyHeading = 0,
+  responderHeading = 0,
   dronePath,
   buoyPath,
   responderPath = [],
@@ -193,7 +267,7 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
 
   const activePuckId = puckId || 'PUCK-ALPHA-04';
 
-  // TileLayer Configuration based on map mode (all keyless & free)
+  // TileLayer Configuration based on map mode (100% keyless OpenStreetMap + CSS Tactical Filters)
   const tileConfig = useMemo(() => {
     switch (mapMode) {
       case 'HYBRID':
@@ -204,16 +278,16 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
         };
       case 'THERMAL':
         return {
-          url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-          subdomains: ['a', 'b', 'c', 'd'],
+          url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          subdomains: ['a', 'b', 'c'],
           className: 'leaflet-thermal-tiles',
         };
       case 'TACTICAL':
       default:
         return {
-          url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-          subdomains: ['a', 'b', 'c', 'd'],
-          className: '',
+          url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          subdomains: ['a', 'b', 'c'],
+          className: 'leaflet-dark-tiles',
         };
     }
   }, [mapMode]);
@@ -240,6 +314,25 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
     () => responderPath.map(p => [p.lat, p.lng]),
     [responderPath]
   );
+
+  // Icon instances based on current unit status and heading rotation
+  const droneIcon = useMemo(
+    () => createDroneIcon(droneStatus, droneHeading),
+    [droneStatus, Math.round(droneHeading / 2) * 2]
+  );
+  const buoyIcon = useMemo(
+    () => createBuoyIcon(buoyStatus, buoyHeading),
+    [buoyStatus, Math.round(buoyHeading / 2) * 2]
+  );
+  const responderIcon = useMemo(
+    () => createResponderIcon(responderStatus, responderHeading),
+    [responderStatus, Math.round(responderHeading / 2) * 2]
+  );
+
+  const isDroneMoving = droneStatus === 'DISPATCHED' || droneStatus === 'EN_ROUTE';
+  const isBuoyMoving = buoyStatus === 'DISPATCHED' || buoyStatus === 'EN_ROUTE';
+  const isResponderMoving = responderStatus === 'DISPATCHED' || responderStatus === 'EN_ROUTE';
+
 
   // ETA connection line from responder to target
   const responderToTargetLine: [number, number][] = useMemo(
@@ -453,14 +546,14 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
           }}
           ref={setMapInstance}
         >
-          {/* Base Map Tile Layer with Free CARTO Dark Matter, OSM & Thermal simulated overlay */}
+          {/* Base Map Tile Layer with Free OpenStreetMap & Tactical CSS dark/thermal filter */}
           <TileLayer
             key={mapMode}
             url={tileConfig.url}
             subdomains={tileConfig.subdomains}
             className={tileConfig.className}
             errorTileUrl={FALLBACK_TILE_DATA_URL}
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             maxZoom={19}
           />
 
@@ -559,18 +652,26 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
           )}
 
           {/* UAV Drone Marker */}
-          <Marker position={[droneLat, droneLng]} icon={createDroneIcon()}>
+          <SmoothAnimatedMarker
+            position={[droneLat, droneLng]}
+            icon={droneIcon}
+            isMoving={isDroneMoving}
+          >
             <Tooltip direction="bottom" opacity={0.95} permanent={false}>
-              <span className="font-mono text-xs text-cyan-400">UAV-RESCUE-01</span>
+              <span className="font-mono text-xs text-cyan-400">UAV-RESCUE-01 [{droneStatus}]</span>
             </Tooltip>
-          </Marker>
+          </SmoothAnimatedMarker>
 
           {/* Autonomous Rescue Buoy Marker */}
-          <Marker position={[buoyLat, buoyLng]} icon={createBuoyIcon()}>
+          <SmoothAnimatedMarker
+            position={[buoyLat, buoyLng]}
+            icon={buoyIcon}
+            isMoving={isBuoyMoving}
+          >
             <Tooltip direction="bottom" opacity={0.95} permanent={false}>
-              <span className="font-mono text-xs text-amber-400">BUOY-HYDRO-02</span>
+              <span className="font-mono text-xs text-amber-400">BUOY-HYDRO-02 [{buoyStatus}]</span>
             </Tooltip>
-          </Marker>
+          </SmoothAnimatedMarker>
 
           {/* Responder Path Trail */}
           {responderPolyline.length > 1 && responderStatus !== 'STANDBY' && (
@@ -589,11 +690,15 @@ export const LeafletMapView: React.FC<LeafletMapViewProps> = ({
           )}
 
           {/* Human Rescue Team Marker */}
-          <Marker position={[responderLat, responderLng]} icon={createResponderIcon()}>
+          <SmoothAnimatedMarker
+            position={[responderLat, responderLng]}
+            icon={responderIcon}
+            isMoving={isResponderMoving}
+          >
             <Tooltip direction="bottom" opacity={0.95} permanent={false}>
-              <span className="font-mono text-xs" style={{ color: '#A78BFA' }}>RESCUE-TEAM-01</span>
+              <span className="font-mono text-xs" style={{ color: '#A78BFA' }}>RESCUE-TEAM-01 [{responderStatus}]</span>
             </Tooltip>
-          </Marker>
+          </SmoothAnimatedMarker>
         </MapContainer>
 
         {/* Recenter + Legend Controls (Bottom Right Overlay) */}

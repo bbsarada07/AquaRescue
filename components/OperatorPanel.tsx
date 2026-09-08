@@ -10,6 +10,9 @@ interface OperatorPanelProps {
   responderStatus: string;
   puckId: string;
   filteredLocation: { lat: number; lng: number };
+  droneLocation?: { lat: number; lng: number } | null;
+  buoyLocation?: { lat: number; lng: number } | null;
+  responderLocation?: { lat: number; lng: number } | null;
   sensorData: {
     screechConfidence: number;
     thermalDelta: number;
@@ -28,6 +31,9 @@ export function OperatorPanel({
   responderStatus,
   puckId,
   filteredLocation,
+  droneLocation,
+  buoyLocation,
+  responderLocation,
   sensorData,
   activeDistress,
   onAutoDispatch,
@@ -48,63 +54,56 @@ export function OperatorPanel({
         return (
           <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-lg text-sm font-extrabold flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            DEPLOYED
+            REACHED
+          </span>
+        );
+      case 'OFFLINE':
+        return (
+          <span className="px-3 py-1 bg-slate-800 text-slate-400 border border-slate-700 rounded-lg text-sm font-bold">
+            OFFLINE
           </span>
         );
       case 'STANDBY':
       default:
         return (
-          <span className="px-3 py-1 bg-slate-800 text-slate-400 border border-slate-700 rounded-lg text-sm font-bold flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
-            READY
+          <span className="px-3 py-1 bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 rounded-lg text-sm font-extrabold">
+            ACTIVE PATROL
           </span>
         );
     }
   };
 
   return (
-    <div className="flex flex-col gap-5 p-5 bg-[#0D1322] h-full overflow-y-auto border-l border-slate-800/80">
+    <div className="flex flex-col gap-4 p-4 lg:p-6 w-full max-w-4xl mx-auto h-full justify-between">
       
-      {/* ── CARD 1: LIVE DRONE CAMERA WITH BOLD AI DETECTION OVERLAY ─────── */}
-      <div id="tour-drone-feed" className="bg-[#131C31] rounded-2xl p-4 border border-slate-700/60 shadow-xl relative overflow-hidden group">
-        <div className="flex items-center justify-between mb-3">
+      {/* ── CARD 1: LIVE DRONE CAMERA FEED ─────────────────────────────────── */}
+      <div id="tour-drone-feed" className="shrink-0 bg-[#131C31] rounded-2xl p-4 border border-slate-700/60 shadow-xl flex flex-col">
+        <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2.5">
           <div className="flex items-center gap-2">
             <Camera className="w-5 h-5 text-cyan-400" />
             <h3 className="font-extrabold text-lg text-white tracking-wide">LIVE DRONE CAMERA</h3>
           </div>
-          <span className="px-2.5 py-0.5 bg-red-600/30 text-red-400 border border-red-500/40 text-xs font-mono font-bold rounded flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+          <span className="px-2.5 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-full text-xs font-mono font-bold animate-pulse">
             LIVE 4K FEED
           </span>
         </div>
 
-        {/* Video Frame Canvas / Simulation */}
-        <div className="relative w-full aspect-video rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center">
-          {/* Background Grid Pattern */}
-          <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:16px_16px]"></div>
-
-          {/* Simulated Thermal / Camera Background */}
-          <div className="absolute inset-0 bg-gradient-to-tr from-cyan-950/40 via-blue-900/20 to-slate-950"></div>
-
-          {/* BOLD AI DETECTION OVERLAY BOX */}
-          <div className="relative z-10 p-4 border-2 border-emerald-400/90 rounded-xl bg-emerald-950/40 backdrop-blur-sm shadow-2xl shadow-emerald-500/20 flex flex-col items-center justify-center animate-pulse">
-            <div className="absolute -top-3 bg-emerald-500 text-slate-950 font-black text-xs px-3 py-0.5 rounded-full uppercase tracking-wider shadow">
-              AI TARGET DETECTED
-            </div>
-            <div className="text-emerald-300 font-mono font-black text-xl tracking-wider mt-1">
-              {(sensorData.screechConfidence * 100).toFixed(0)}% CONFIDENCE
-            </div>
-            <p className="text-xs text-slate-300 font-semibold mt-1 flex items-center gap-1">
-              <span>Distress Beacon:</span>
-              <span className="text-white font-mono font-bold">{puckId}</span>
-            </p>
+        {/* Video Canvas Container */}
+        <div className="w-full rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video relative flex items-center justify-center shadow-inner">
+          <video
+            src="/surveillance.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute top-2 left-2 bg-slate-950/80 backdrop-blur-md px-2 py-1 rounded text-[10px] font-mono text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+            <span>UAV-RESCUE-01 · AI OPTICAL TRACKING</span>
           </div>
-
-          {/* Crosshair Overlay */}
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <div className="w-32 h-32 border border-cyan-500/30 rounded-full flex items-center justify-center">
-              <div className="w-2 h-2 bg-cyan-400 rounded-full"></div>
-            </div>
+          <div className="absolute bottom-2 right-2 bg-slate-950/80 backdrop-blur-md px-2 py-1 rounded text-[10px] font-mono text-emerald-400 border border-emerald-500/30">
+            AUTO TARGET LOCK: 98%
           </div>
         </div>
 
@@ -122,7 +121,7 @@ export function OperatorPanel({
       </div>
 
       {/* ── CARD 2: UNIT STATUS & QUICK ACTIONS ────────────────────────────── */}
-      <div id="tour-unit-status" className="bg-[#131C31] rounded-2xl p-4 border border-slate-700/60 shadow-xl flex-1 flex flex-col justify-between">
+      <div id="tour-unit-status" className="shrink-0 bg-[#131C31] rounded-2xl p-4 border border-slate-700/60 shadow-xl flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
@@ -142,7 +141,10 @@ export function OperatorPanel({
                 </div>
                 <div>
                   <h4 className="font-extrabold text-base text-white">RESCUE DRONE (UAV-01)</h4>
-                  <p className="text-xs text-slate-400 font-medium">Payload: Automated Life Vest</p>
+                  <div className="font-mono text-xs text-cyan-300 font-semibold flex items-center gap-2 mt-0.5">
+                    <span>LAT: {droneLocation ? droneLocation.lat.toFixed(6) : '17.387544'}</span>
+                    <span>LON: {droneLocation ? droneLocation.lng.toFixed(6) : '78.489171'}</span>
+                  </div>
                 </div>
               </div>
               {getStatusBadge(droneStatus)}
@@ -156,7 +158,10 @@ export function OperatorPanel({
                 </div>
                 <div>
                   <h4 className="font-extrabold text-base text-white">HYDRO-BUOY (BUOY-02)</h4>
-                  <p className="text-xs text-slate-400 font-medium">Auto Drift Compensation</p>
+                  <div className="font-mono text-xs text-amber-300 font-semibold flex items-center gap-2 mt-0.5">
+                    <span>LAT: {buoyLocation ? buoyLocation.lat.toFixed(6) : '17.383044'}</span>
+                    <span>LON: {buoyLocation ? buoyLocation.lng.toFixed(6) : '78.485171'}</span>
+                  </div>
                 </div>
               </div>
               {getStatusBadge(buoyStatus)}
@@ -170,7 +175,10 @@ export function OperatorPanel({
                 </div>
                 <div>
                   <h4 className="font-extrabold text-base text-white">FIELD RESPONSE TEAM</h4>
-                  <p className="text-xs text-slate-400 font-medium">Boat / Helicopter Crew</p>
+                  <div className="font-mono text-xs text-emerald-300 font-semibold flex items-center gap-2 mt-0.5">
+                    <span>LAT: {responderLocation ? responderLocation.lat.toFixed(6) : '17.382044'}</span>
+                    <span>LON: {responderLocation ? responderLocation.lng.toFixed(6) : '78.488671'}</span>
+                  </div>
                 </div>
               </div>
               {getStatusBadge(responderStatus)}
