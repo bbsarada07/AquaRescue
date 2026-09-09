@@ -4,6 +4,12 @@
 
 ---
 
+## Deployed Prototype Link : 
+
+https://aquarescue-neardrop.vercel.app/
+
+---
+
 ### 📹 Demonstration & Workflow Video
 
 > **Watch Full Workflow Demo:**  
