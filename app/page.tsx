@@ -29,7 +29,6 @@ import { type DroneCameraMode } from '@/components/DroneCameraFeed';
 
 // FastAPI Backend Base URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://aquarescue-backend.onrender.com';
-const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 
 interface BackendTelemetry {
