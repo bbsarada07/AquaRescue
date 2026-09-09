@@ -377,7 +377,6 @@ function DashboardContent() {
             buoyLocation={state.buoyLocation}
             buoyHeading={state.buoyHeading}
             responderLocation={state.responderLocation}
-            responderHeading={state.responderHeading}
             dronePath={state.dronePath}
             buoyPath={state.buoyPath}
             responderPath={state.responderPath}
